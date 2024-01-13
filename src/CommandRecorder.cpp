@@ -1,16 +1,16 @@
-#include <engine/vulkan/CommandRecorder.hpp>
+#include <engine/graphics/vulkan/CommandRecorder.hpp>
 
 namespace en::vk
 {
     void CommandRecorder::ImageLayoutTransfer(
-            VkCommandBuffer commandBuffer,
-            VkImage image,
-            VkImageLayout srcLayout,
-            VkImageLayout dstLayout,
-            VkAccessFlags srcAccessMask,
-            VkAccessFlags dstAccessMask,
-            VkPipelineStageFlags srcStageMask,
-            VkPipelineStageFlags dstStageMask)
+        VkCommandBuffer commandBuffer,
+        VkImage image,
+        VkImageLayout srcLayout,
+        VkImageLayout dstLayout,
+        VkAccessFlags srcAccessMask,
+        VkAccessFlags dstAccessMask,
+        VkPipelineStageFlags srcStageMask,
+        VkPipelineStageFlags dstStageMask)
     {
         VkImageMemoryBarrier imageMemoryBarrier;
         imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -29,12 +29,12 @@ namespace en::vk
         imageMemoryBarrier.subresourceRange.layerCount = 1;
 
         vkCmdPipelineBarrier(
-                commandBuffer,
-                srcStageMask,
-                dstStageMask,
-                0,
-                0, nullptr,
-                0, nullptr,
-                1, &imageMemoryBarrier);
+            commandBuffer,
+            srcStageMask,
+            dstStageMask,
+            0,
+            0, nullptr,
+            0, nullptr,
+            1, &imageMemoryBarrier);
     }
 }

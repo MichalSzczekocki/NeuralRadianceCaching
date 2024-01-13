@@ -1,10 +1,13 @@
-#include <engine/VulkanAPI.hpp>
+#include <engine/graphics/VulkanAPI.hpp>
 #include <vector>
 #include <map>
-#include <engine/Log.hpp>
-#include <engine/Window.hpp>
-#include <engine/Camera.hpp>
-#include <engine/vulkan/Texture2D.hpp>
+#include <engine/util/Log.hpp>
+#include <engine/graphics/Window.hpp>
+#include <engine/graphics/Camera.hpp>
+#include <engine/graphics/vulkan/Texture2D.hpp>
+#include <engine/objects/VolumeData.hpp>
+#include <engine/graphics/Sun.hpp>
+#include <engine/graphics/renderer/DensityPathTracer.hpp>
 
 namespace en
 {
@@ -36,6 +39,9 @@ namespace en
 
         Camera::Init();
         vk::Texture2D::Init();
+        VolumeData::Init(m_Device);
+        Sun::Init();
+        DensityPathTracer::Init(m_Device);
         /*Material::Init();
         ModelInstance::Init();
         CloudData::Init();
@@ -54,6 +60,9 @@ namespace en
         CloudData::Shutdown();
         ModelInstance::Shutdown();
         Material::Shutdown();*/
+        DensityPathTracer::Shutdown(m_Device);
+        Sun::Shutdown();
+        VolumeData::Shutdown(m_Device);
         vk::Texture2D::Shutdown();
         Camera::Shutdown();
 
@@ -176,7 +185,7 @@ namespace en
 
         // Select wanted layers
         std::vector<const char*> layers = {
-                // "VK_LAYER_KHRONOS_validation"
+                 "VK_LAYER_KHRONOS_validation"
         };
 
         // List supported extensions

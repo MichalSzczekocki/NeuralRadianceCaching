@@ -1,8 +1,8 @@
 #pragma once
 
-#include <engine/common.hpp>
+#include "common.hpp"
 #include <glm/glm.hpp>
-#include <engine/vulkan/Buffer.hpp>
+#include "engine/graphics/vulkan/Buffer.hpp"
 
 namespace en
 {
