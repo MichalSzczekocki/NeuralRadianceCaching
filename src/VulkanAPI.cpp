@@ -411,7 +411,7 @@ namespace en
 
         // enable float64 for sky-vertex shader.
         VkPhysicalDeviceFeatures features{};
-        features.shaderFloat64 = VK_TRUE;
+//        features.shaderFloat64 = VK_TRUE;
 
         // Create
         VkDeviceCreateInfo createInfo;
