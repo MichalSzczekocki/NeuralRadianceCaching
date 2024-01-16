@@ -18,6 +18,8 @@
 #include <engine/graphics/Sun.hpp>
 #include <engine/graphics/NeuralRadianceCache.hpp>
 #include <engine/compute/Matrix.hpp>
+#include <engine/compute/Matmul.hpp>
+#include <mnist/mnist_reader.hpp>
 
 en::DensityPathTracer* pathTracer = nullptr;
 
@@ -99,8 +101,7 @@ void SwapchainResizeCallback()
     en::ImGuiRenderer::SetBackgroundImageView(pathTracer->GetImageView());
 }
 
-int main()
-{
+void RunNrcHpm() {
     std::string appName("Neural-Radiance-Cache");
     uint32_t width = 600;
     uint32_t height = width;
@@ -142,16 +143,16 @@ int main()
 
     // Test compute
     std::vector<std::vector<float>> matVals = {
-            { 1.0f, 0.0f, 0.0f },
-            { 0.0f, 1.0f, 0.0f },
-            { 0.0f, 0.0f, 1.0f } };
+            {1.0f, 0.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f},
+            {0.0f, 0.0f, 1.0f}};
     en::vk::Matrix testMat1(matVals);
     en::Log::Info(testMat1.ToString());
 
     matVals = {
-            { 1.0f },
-            { 0.5f },
-            { 0.25f } };
+            {1.0f},
+            {0.5f},
+            {0.25f}};
     en::vk::Matrix testMat2(matVals);
     en::Log::Info(testMat2.ToString());
 
@@ -162,8 +163,7 @@ int main()
     VkDevice device = en::VulkanAPI::GetDevice();
     VkQueue graphicsQueue = en::VulkanAPI::GetGraphicsQueue();
     VkResult result;
-    while (!en::Window::IsClosed())
-    {
+    while (!en::Window::IsClosed()) {
         // Update
         en::Window::Update();
         en::Input::Update();
@@ -174,7 +174,8 @@ int main()
         float deltaTime = static_cast<float>(en::Time::GetDeltaTime());
         uint32_t fps = en::Time::GetFps();
         en::Input::HandleUserCamInput(&camera, deltaTime);
-        en::Window::SetTitle(appName + " | Delta time: " + std::to_string(deltaTime) + "s | Fps: " + std::to_string(fps));
+        en::Window::SetTitle(
+                appName + " | Delta time: " + std::to_string(deltaTime) + "s | Fps: " + std::to_string(fps));
 
         // Physics
         camera.SetAspectRatio(width, height);
@@ -224,6 +225,28 @@ int main()
     en::Window::Shutdown();
 
     en::Log::Info("Ending " + appName);
+}
 
+void TestNN()
+{
+    en::Log::Info("Testing Neural Network");
+
+    // Mnist
+    mnist::MNIST_dataset<std::vector, std::vector<uint8_t>, uint8_t> dataset =
+            mnist::read_dataset<std::vector, std::vector, uint8_t>("data/mnist");
+
+    dataset.resize_training(20000);
+    dataset.resize_test(5000);
+
+    en::Log::Info("Number of training images = " + std::to_string(dataset.training_images.size()));
+    en::Log::Info("Number of training labels = " + std::to_string(dataset.training_labels.size()));
+    en::Log::Info("Number of test images = " + std::to_string(dataset.test_images.size()));
+    en::Log::Info("Number of test labels = " + std::to_string(dataset.test_labels.size()));
+}
+
+int main()
+{
+    TestNN();
+    //RunNrcHpm();
     return 0;
 }
