@@ -8,6 +8,7 @@
 #include <engine/objects/VolumeData.hpp>
 #include <engine/graphics/Sun.hpp>
 #include <engine/graphics/renderer/DensityPathTracer.hpp>
+#include <engine/compute/Matmul.hpp>
 
 namespace en
 {
@@ -42,6 +43,7 @@ namespace en
         VolumeData::Init(m_Device);
         Sun::Init();
         DensityPathTracer::Init(m_Device);
+        vk::Matmul::Init(m_Device);
         /*Material::Init();
         ModelInstance::Init();
         CloudData::Init();
@@ -60,6 +62,7 @@ namespace en
         CloudData::Shutdown();
         ModelInstance::Shutdown();
         Material::Shutdown();*/
+        vk::Matmul::Shutdown(m_Device);
         DensityPathTracer::Shutdown(m_Device);
         Sun::Shutdown();
         VolumeData::Shutdown(m_Device);

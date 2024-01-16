@@ -101,7 +101,7 @@ void SwapchainResizeCallback()
 
 int main()
 {
-    std::string appName("NRC-HPM-Renderer");
+    std::string appName("Neural-Radiance-Cache");
     uint32_t width = 600;
     uint32_t height = width;
 
