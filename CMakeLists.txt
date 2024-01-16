@@ -6,7 +6,7 @@ if (DEFINED ENV{VCPKG_CMAKE_INCLUDE})
 endif()
 
 # Project
-project(NeuralRadianceCaching)
+project(Neural-Radiance-Cache)
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -32,8 +32,8 @@ find_package(glm CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE glm::glm)
 
 # STB
-find_path(STB_INCLUDE_DIRS "stb.h")
-target_include_directories(${PROJECT_NAME} PRIVATE ${STB_INCLUDE_DIRS})
+find_package(Stb REQUIRED)
+target_include_directories(${PROJECT_NAME} PRIVATE ${Stb_INCLUDE_DIR})
 
 # IMGUI
 find_package(imgui CONFIG REQUIRED)

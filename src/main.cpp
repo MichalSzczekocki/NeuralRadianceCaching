@@ -163,6 +163,7 @@ void RunNrcHpm() {
     VkDevice device = en::VulkanAPI::GetDevice();
     VkQueue graphicsQueue = en::VulkanAPI::GetGraphicsQueue();
     VkResult result;
+    size_t counter = 0;
     while (!en::Window::IsClosed()) {
         // Update
         en::Window::Update();
@@ -182,8 +183,6 @@ void RunNrcHpm() {
         camera.UpdateUniformBuffer();
 
         // Render
-//        en::ImGuiRenderer::StartFrame();
-
         pathTracer->Render(graphicsQueue);
         result = vkQueueWaitIdle(graphicsQueue);
         ASSERT_VULKAN(result);
@@ -199,6 +198,14 @@ void RunNrcHpm() {
         ASSERT_VULKAN(result);
 
         swapchain.DrawAndPresent();
+
+        if (0 == (counter % 100))
+        {
+            std::string exportFileName = "data/output/path_tracer_" + std::to_string(en::Time::GetTimeStamp()) + ".bmp";
+            pathTracer->ExportImageToHost(graphicsQueue, exportFileName);
+        }
+
+        counter++;
     }
     result = vkDeviceWaitIdle(device);
     ASSERT_VULKAN(result);
