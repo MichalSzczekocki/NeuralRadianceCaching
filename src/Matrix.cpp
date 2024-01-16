@@ -46,6 +46,15 @@ namespace en::vk
         }
     }
 
+    Matrix::~Matrix()
+    {
+        if (m_Data != nullptr)
+        {
+            delete m_Data;
+            m_Data = nullptr;
+        }
+    }
+
     Matrix Matrix::operator+(const Matrix& other) const
     {
         // Check size
@@ -97,8 +106,12 @@ namespace en::vk
 
     void Matrix::Destroy()
     {
-        m_Buffer.Destroy();
-        free(m_HostMemory);
+        if (m_HostMemory != nullptr)
+        {
+            m_Buffer.Destroy();
+            free(m_HostMemory);
+            m_HostMemory = nullptr;
+        }
     }
 
     void Matrix::CopyToDevice()

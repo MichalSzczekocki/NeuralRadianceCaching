@@ -246,7 +246,7 @@ void TestNN()
 
 int main()
 {
-    TestNN();
-    //RunNrcHpm();
+//    TestNN();
+    RunNrcHpm();
     return 0;
 }
