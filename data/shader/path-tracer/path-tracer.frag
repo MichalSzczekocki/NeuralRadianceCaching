@@ -45,7 +45,6 @@ const vec3 skyPos = vec3(0.0);
 
 #define MAX_RAY_DISTANCE 100000.0
 #define MIN_RAY_DISTANCE 0.125
-#define DEPTH_MAX_TRANSMITTANCE 0.3
 
 #define SAMPLE_COUNT 40
 #define SECONDARY_SAMPLE_COUNT 12
@@ -444,7 +443,7 @@ vec3 TracePath1(vec3 rayOrigin, vec3 rayDir)
 			const vec3 randomLight = TracePath2(samplePoint, randomDir) * randomPhase;
 
 			// Combine incomming light
-			const vec3 totalIncomingLight = randomLight + sunLight;
+			const vec3 totalIncomingLight = (randomLight + sunLight) * 0.5;
 
 			// Transmittance calculation
 			const vec3 s = sampleSigmaS * totalIncomingLight * density;// / prob;
@@ -505,7 +504,7 @@ vec3 TracePath0(const vec3 rayOrigin, vec3 rayDir)
 			const vec3 randomLight = TracePath1(samplePoint, randomDir) * randomPhase;
 
 			// Combine incomming light
-			const vec3 totalIncomingLight = randomLight + sunLight;
+			const vec3 totalIncomingLight = (randomLight + sunLight) * 0.5;
 
 			// Transmittance calculation
 			const vec3 s = sampleSigmaS * totalIncomingLight * density;// / prob;
@@ -539,7 +538,7 @@ void main()
 	const vec3 rd = normalize(pixelWorldPos - ro);
 
 	outPos = vec4(ro, 1.0);
-	outDir = vec4(rd.xy, 0.0, 1.0);
+	outDir = vec4(rd, 1.0);
 
 	const vec3[2] entry_exit = find_entry_exit(ro, rd);
 	const vec3 entry = entry_exit[0];
