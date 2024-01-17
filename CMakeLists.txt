@@ -38,3 +38,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${Stb_INCLUDE_DIR})
 # IMGUI
 find_package(imgui CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE imgui::imgui)
+
+find_package(Imath CONFIG)
+
+# First, try to find just the right config files
+find_package(Imath CONFIG)
+if (NOT TARGET Imath::Imath)
+    # Couldn't find Imath::Imath, maybe it's older and has IlmBase?
+    find_package(IlmBase CONFIG)
+endif ()
+find_package(OpenEXR CONFIG)
+target_link_libraries (${PROJECT_NAME} PRIVATE OpenEXR::OpenEXR)
