@@ -9,6 +9,7 @@
 #include <engine/graphics/Sun.hpp>
 #include <engine/graphics/renderer/DensityPathTracer.hpp>
 #include <engine/compute/Matmul.hpp>
+#include <engine/graphics/renderer/NrcHpmRenderer.hpp>
 
 namespace en
 {
@@ -42,28 +43,18 @@ namespace en
         vk::Texture2D::Init();
         VolumeData::Init(m_Device);
         Sun::Init();
-        DensityPathTracer::Init(m_Device);
+//        DensityPathTracer::Init(m_Device);
+        NrcHpmRenderer::Init(m_Device);
         vk::Matmul::Init(m_Device);
-        /*Material::Init();
-        ModelInstance::Init();
-        CloudData::Init();
-        vk::ComputePipeline::Init();
-        NoiseGenerator::Init();
-        Wind::Init();*/
     }
 
     void VulkanAPI::Shutdown()
     {
         Log::Info("Shutting down VulkanAPI");
 
-        /*Wind::Shutdown();
-        NoiseGenerator::Shutdown();
-        vk::ComputePipeline::Shutdown();
-        CloudData::Shutdown();
-        ModelInstance::Shutdown();
-        Material::Shutdown();*/
         vk::Matmul::Shutdown(m_Device);
-        DensityPathTracer::Shutdown(m_Device);
+//        DensityPathTracer::Shutdown(m_Device);
+        NrcHpmRenderer::Shutdown(m_Device);
         Sun::Shutdown();
         VolumeData::Shutdown(m_Device);
         vk::Texture2D::Shutdown();
