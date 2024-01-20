@@ -1,4 +1,4 @@
-#version 450
+#version 460
 #extension GL_ARB_separate_shader_objects : enable
 
 layout(location = 0) in vec3 pixelWorldPos;
@@ -534,7 +534,7 @@ vec3 TracePath(const vec3 rayOrigin, const vec3 rayDir)
 
 void main()
 {
-	vec3 ro = camera.pos;
+	const vec3 ro = camera.pos;
 	const vec3 rd = normalize(pixelWorldPos - ro);
 
 	float theta = atan(rd.y, rd.x);
