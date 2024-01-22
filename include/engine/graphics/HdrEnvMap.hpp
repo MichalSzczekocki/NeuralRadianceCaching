@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vector>
-#include <engine/graphics/common.hpp>
+#include <engine/graphics/vulkan/Buffer.hpp>
 
 namespace en
 {
@@ -16,9 +16,17 @@ namespace en
 
         void Destroy();
 
+        void RenderImGui();
+
         VkDescriptorSet GetDescriptorSet() const;
 
     private:
+        struct UniformData
+        {
+            float directStrength;
+            float hpmStrength;
+        };
+
         static VkDescriptorSetLayout m_DescSetLayout;
         static VkDescriptorPool m_DescPool;
 
@@ -26,15 +34,35 @@ namespace en
         uint32_t m_Height;
         VkDeviceSize m_RawSize;
 
-        VkImage m_Image;
-        VkImageView m_ImageView;
-        VkDeviceMemory m_DeviceMemory;
-        VkImageLayout m_ImageLayout;
+        VkImage m_ColorImage;
+        VkImageView m_ColorImageView;
+        VkDeviceMemory m_ColorImageMemory;
+        VkImageLayout m_ColorImageLayout;
+
+        // Cdf of X
+        VkImage m_CdfXImage;
+        VkImageView m_CdfXImageView;
+        VkDeviceMemory m_CdfXImageMemory;
+        VkImageLayout m_CdfXImageLayout;
+
+        // Cdf of Y given X
+        VkImage m_CdfYImage;
+        VkImageView m_CdfYImageView;
+        VkDeviceMemory m_CdfYImageMemory;
+        VkImageLayout m_CdfYImageLayout;
+
         VkSampler m_Sampler;
+
+        UniformData m_UniformData;
+        vk::Buffer m_UniformBuffer;
 
         VkDescriptorSet m_DescSet;
 
-        void ChangeLayout(VkImageLayout layout, VkCommandBuffer commandBuffer, VkQueue queue);
-        void WriteBufferToImage(VkCommandBuffer commandBuffer, VkQueue queue, VkBuffer buffer);
+        void CreateColorImage(VkDevice device);
+        void CreateCdfXImage(VkDevice device);
+        void CreateCdfYImage(VkDevice device);
+
+        void ChangeColorImageLayout(VkImageLayout layout, VkCommandBuffer commandBuffer, VkQueue queue);
+        void WriteBufferToColorImage(VkCommandBuffer commandBuffer, VkQueue queue, VkBuffer buffer);
     };
 }

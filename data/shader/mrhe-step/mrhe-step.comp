@@ -1,0 +1,74 @@
+#version 460
+#extension GL_EXT_debug_printf : enable
+#extension GL_EXT_shader_atomic_float : enable
+
+layout(set = 6, binding = 0) uniform MrheData
+{
+	float learningRate;
+	float weightDecay;
+	uint levelCount;
+	uint hashTableSize;
+	uint featureCount;
+	uint minRes;
+	uint maxRes;
+	uint resolutions[16];
+} mrhe;
+
+layout(std430, set = 6, binding = 1) buffer MRHashTable
+{
+	float mrHashTable[];
+};
+
+layout(std430, set = 6, binding = 2) buffer MRDeltaHashTable
+{
+	float mrDeltaHashTable[];
+};
+
+bool IsNanOrInf(float x)
+{
+	return isnan(x) || isinf(x) || abs(x) > 1000.0;
+}
+
+float ModifyDeltaWeight(float deltaWeight, const float weight)
+{
+	const float border = 100.0;
+
+	if (IsNanOrInf(deltaWeight))
+	{
+		deltaWeight = border * sign(deltaWeight);
+	}
+
+	// Weight decay
+	deltaWeight += -weight * mrhe.weightDecay;
+
+	return deltaWeight;
+}
+
+void StepMrhe(const uint index)
+{
+	float deltaMrhe = ModifyDeltaWeight(mrDeltaHashTable[index], mrHashTable[index]);
+	mrHashTable[index] += deltaMrhe * mrhe.learningRate;
+	
+	if (IsNanOrInf(mrHashTable[index]))
+	{
+		mrHashTable[index] = 0.0;
+	}
+}
+
+void ClearDeltaMrhe(const uint index)
+{
+	mrDeltaHashTable[index] = 0.0;
+}
+
+void main()
+{
+	const uint index = gl_GlobalInvocationID.x;
+	const uint maxIndex = mrhe.levelCount * mrhe.featureCount * mrhe.hashTableSize;
+	if (index >= maxIndex)
+	{
+		return;
+	}
+
+	StepMrhe(index);
+	ClearDeltaMrhe(index);
+}

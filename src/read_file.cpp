@@ -2,6 +2,8 @@
 #include <stb_image.h>
 #include <engine/util/Log.hpp>
 #include <fstream>
+#include <thread>
+#include <array>
 
 namespace en
 {
@@ -73,5 +75,48 @@ namespace en
         }
 
         return density3D;
+    }
+
+    std::vector<float> ReadFileHdr4f(const std::string& fileName, int& width, int& height)
+    {
+        int channel;
+        stbi_set_flip_vertically_on_load(true);
+        float* data = stbi_loadf(fileName.c_str(), &width, &height, &channel, 4);
+
+        if (data == nullptr)
+        {
+            Log::Error("Failed to load Hdr4f from File: " + fileName, true);
+        }
+
+        const size_t floatCount = width * height * 4;
+        const size_t rawSize = floatCount * sizeof(float);
+
+        std::vector<float> hdrData(floatCount);
+        memcpy(hdrData.data(), data, rawSize);
+
+        float max = 0.0f;
+        size_t maxX = 0;
+        size_t maxY = 0;
+        for (size_t x = 0; x < width; x++)
+        {
+            for (size_t y = 0; y < height; y++)
+            {
+                for (size_t c = 0; c < 4; c++)
+                {
+                    const size_t linearIndex = (y * width * 4) + (x * 4) + c;
+                    const float current = hdrData[linearIndex];
+                    if (current > max)
+                    {
+                        max = current;
+                        maxX = x;
+                        maxY = y;
+                    }
+                }
+            }
+        }
+
+        en::Log::Info(fileName + " at (" + std::to_string(maxX) + "," + std::to_string(maxY) + ") max float: " + std::to_string(max));
+
+        return hdrData;
     }
 }

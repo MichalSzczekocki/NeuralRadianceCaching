@@ -59,7 +59,7 @@ namespace en
             cam->RotateViewDir(mouseMove.x, mouseMove.y);
 
             if (mouseMove != glm::vec2(0.0f, 0.0f))
-                cameraChanged=true;
+                cameraChanged = true;
         }
 
         // Keyboard input handling
@@ -90,7 +90,7 @@ namespace en
         if (camMove != glm::vec3(0.f, 0.f, 0.f))
         {
             cam->Move(camMove);
-            cameraChanged= true;
+            cameraChanged = true;
         }
 
         cam->SetChanged(cameraChanged);

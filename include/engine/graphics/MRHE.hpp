@@ -11,15 +11,21 @@ namespace en
         static void Shutdown(VkDevice device);
         static VkDescriptorSetLayout GetDescriptorSetLayout();
 
-        MRHE();
+        MRHE(float learningRate, float weightDecay);
 
         void Destroy();
 
+        void PrintHashTables() const;
+
         VkDescriptorSet GetDescriptorSet() const;
+
+        size_t GetHashTableSize() const;
 
     private:
         struct UniformData
         {
+            float learningRate;
+            float weightDecay;
             uint32_t levelCount;
             uint32_t hashTableSize;
             uint32_t featureCount;
@@ -37,5 +43,6 @@ namespace en
 
         size_t m_HashTablesSize;
         vk::Buffer m_HashTablesBuffer;
+        vk::Buffer m_DeltaHashTablesBuffer;
     };
 }

@@ -16,14 +16,14 @@ namespace en
         matrixBinding.binding = 0;
         matrixBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         matrixBinding.descriptorCount = 1;
-        matrixBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        matrixBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
         matrixBinding.pImmutableSamplers = nullptr;
 
         VkDescriptorSetLayoutBinding posBinding;
         posBinding.binding = 1;
         posBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         posBinding.descriptorCount = 1;
-        posBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        posBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
         posBinding.pImmutableSamplers = nullptr;
 
         std::vector<VkDescriptorSetLayoutBinding> bindings = { matrixBinding, posBinding };
@@ -163,11 +163,10 @@ namespace en
 
     void Camera::UpdateUniformBuffer()
     {
-        m_Matrices.oldProjView = m_Matrices.projView;
-
         glm::mat4 projMat = glm::perspective(m_Fov, m_AspectRatio, m_NearPlane, m_FarPlane);
         glm::mat4 viewMat = glm::lookAt(m_Pos, m_Pos + m_ViewDir, m_Up);
         m_Matrices.projView = projMat * viewMat;
+        m_Matrices.invProjView = glm::inverse(m_Matrices.projView);
 
         m_MatrixUniformBuffer->SetData(sizeof(CameraMatrices), &m_Matrices, 0, 0);
         m_PosUniformBuffer->SetData(sizeof(glm::vec3), &m_Pos, 0, 0);

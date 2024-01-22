@@ -38,4 +38,3 @@ void main()
 
 	fragUV = uv[index];
 }
-

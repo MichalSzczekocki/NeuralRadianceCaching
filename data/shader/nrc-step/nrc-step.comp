@@ -1,0 +1,408 @@
+#version 460
+#extension GL_EXT_debug_printf : enable
+#extension GL_EXT_shader_atomic_float : enable
+
+// NN buffers
+layout(std430, set = 3, binding = 0) buffer Weights0
+{
+	float matWeights0[64]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 1) buffer Weights1
+{
+	float matWeights1[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 2) buffer Weights2
+{
+	float matWeights2[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 3) buffer Weights3
+{
+	float matWeights3[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 4) buffer Weights4
+{
+	float matWeights4[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 5) buffer Weights5
+{
+	float matWeights5[192]; // 64 x 3
+};
+
+layout(std430, set = 3, binding = 6) buffer DeltaWeights0
+{
+	float matDeltaWeights0[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 7) buffer DeltaWeights1
+{
+	float matDeltaWeights1[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 8) buffer DeltaWeights2
+{
+	float matDeltaWeights2[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 9) buffer DeltaWeights3
+{
+	float matDeltaWeights3[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 10) buffer DeltaWeights4
+{
+	float matDeltaWeights4[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 11) buffer DeltaWeights5
+{
+	float matDeltaWeights5[192]; // 64 x 3
+};
+
+layout(std430, set = 3, binding = 12) buffer Momentum1Weights0
+{
+	float matMomentum1Weights0[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 13) buffer Momentum1Weights1
+{
+	float matMomentum1Weights1[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 14) buffer Momentum1Weights2
+{
+	float matMomentum1Weights2[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 15) buffer Momentum1Weights3
+{
+	float matMomentum1Weights3[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 16) buffer Momentum1Weights4
+{
+	float matMomentum1Weights4[4096]; // 64 x 64
+};
+
+layout(std430, set = 3, binding = 17) buffer Momentum1Weights5
+{
+	float matMomentum1Weights5[192]; // 64 x 3
+};
+
+layout(std430, set = 3, binding = 18) buffer Biases0
+{
+	float matBiases0[64];
+};
+
+layout(std430, set = 3, binding = 19) buffer Biases1
+{
+	float matBiases1[64];
+};
+
+layout(std430, set = 3, binding = 20) buffer Biases2
+{
+	float matBiases2[64];
+};
+
+layout(std430, set = 3, binding = 21) buffer Biases3
+{
+	float matBiases3[64];
+};
+
+layout(std430, set = 3, binding = 22) buffer Biases4
+{
+	float matBiases4[64];
+};
+
+layout(std430, set = 3, binding = 23) buffer Biases5
+{
+	float matBiases5[3];
+};
+
+layout(std430, set = 3, binding = 24) buffer DeltaBiases0
+{
+	float matDeltaBiases0[64];
+};
+
+layout(std430, set = 3, binding = 25) buffer DeltaBiases1
+{
+	float matDeltaBiases1[64];
+};
+
+layout(std430, set = 3, binding = 26) buffer DeltaBiases2
+{
+	float matDeltaBiases2[64];
+};
+
+layout(std430, set = 3, binding = 27) buffer DeltaBiases3
+{
+	float matDeltaBiases3[64];
+};
+
+layout(std430, set = 3, binding = 28) buffer DeltaBiases4
+{
+	float matDeltaBiases4[64];
+};
+
+layout(std430, set = 3, binding = 29) buffer DeltaBiases5
+{
+	float matDeltaBiases5[3];
+};
+
+layout(std430, set = 3, binding = 30) buffer Momentum1Biases0
+{
+	float matMomentum1Biases0[64];
+};
+
+layout(std430, set = 3, binding = 31) buffer Momentum1Biases1
+{
+	float matMomentum1Biases1[64];
+};
+
+layout(std430, set = 3, binding = 32) buffer Momentum1Biases2
+{
+	float matMomentum1Biases2[64];
+};
+
+layout(std430, set = 3, binding = 33) buffer Momentum1Biases3
+{
+	float matMomentum1Biases3[64];
+};
+
+layout(std430, set = 3, binding = 34) buffer Momentum1Biases4
+{
+	float matMomentum1Biases4[64];
+};
+
+layout(std430, set = 3, binding = 35) buffer Momentum1Biases5
+{
+	float matMomentum1Biases5[3];
+};
+
+layout(set = 3, binding = 36) uniform NrcConfig
+{
+	float learningRate;
+	float weightDecay;
+	float beta1;
+} nrcConfig;
+
+// Constants
+layout(constant_id = 0) const float WIDTH_FACTOR = 0.1;
+layout(constant_id = 1) const float HEIGHT_FACTOR = 0.1;
+
+const vec3 skySize = vec3(125.0, 85.0, 153.0) / 2.0;
+const vec3 skyPos = vec3(0.0);
+
+bool IsNanOrInf(float x)
+{
+	return isnan(x) || isinf(x) || abs(x) > 1000.0;
+}
+
+float ModifyDeltaWeight(float deltaWeight, const float weight)
+{
+	const float border = 1000.0;
+
+	if (IsNanOrInf(deltaWeight))
+	{
+		deltaWeight = border * sign(deltaWeight);
+	}
+
+	// Weight decay
+	deltaWeight += -weight * nrcConfig.weightDecay;
+
+	return deltaWeight;
+}
+
+void StepWeights0(const uint index)
+{
+	if (index < 4096)
+	{
+		float weight = matWeights0[index];
+		float deltaWeight = 
+			((1.0 - nrcConfig.beta1) * ModifyDeltaWeight(matDeltaWeights0[index], weight)) + 
+			(nrcConfig.beta1 * matMomentum1Weights0[index]);
+		matMomentum1Weights0[index] = deltaWeight;
+		matWeights0[index] += deltaWeight * nrcConfig.learningRate;
+
+		if (IsNanOrInf(matWeights0[index]))
+		{
+			matWeights0[index] = 0.0;
+		}
+	}
+}
+
+void StepWeights1(const uint index)
+{
+	if (index < 4096)
+	{
+		float weight = matWeights1[index];
+		float deltaWeight = 
+			((1.0 - nrcConfig.beta1) * ModifyDeltaWeight(matDeltaWeights1[index], weight)) + 
+			(nrcConfig.beta1 * matMomentum1Weights1[index]);
+		matMomentum1Weights1[index] = deltaWeight;
+		matWeights1[index] += deltaWeight * nrcConfig.learningRate;
+
+		if (IsNanOrInf(matWeights1[index]))
+		{
+			matWeights1[index] = 0.0;
+		}
+	}
+}
+
+void StepWeights2(const uint index)
+{
+	if (index < 4096)
+	{
+		float weight = matWeights2[index];
+		float deltaWeight = 
+			((1.0 - nrcConfig.beta1) * ModifyDeltaWeight(matDeltaWeights2[index], weight)) + 
+			(nrcConfig.beta1 * matMomentum1Weights2[index]);
+		matMomentum1Weights2[index] = deltaWeight;
+		matWeights2[index] += deltaWeight * nrcConfig.learningRate;
+
+		if (IsNanOrInf(matWeights2[index]))
+		{
+			matWeights2[index] = 0.0;
+		}
+	}
+}
+
+void StepWeights3(const uint index)
+{
+	if (index < 4096)
+	{
+		float weight = matWeights3[index];
+		float deltaWeight = 
+			((1.0 - nrcConfig.beta1) * ModifyDeltaWeight(matDeltaWeights3[index], weight)) + 
+			(nrcConfig.beta1 * matMomentum1Weights3[index]);
+		matMomentum1Weights3[index] = deltaWeight;
+		matWeights3[index] += deltaWeight * nrcConfig.learningRate;
+
+		if (IsNanOrInf(matWeights3[index]))
+		{
+			matWeights3[index] = 0.0;
+		}
+	}
+}
+
+void StepWeights4(const uint index)
+{
+	if (index < 4096)
+	{
+		float weight = matWeights4[index];
+		float deltaWeight = 
+			((1.0 - nrcConfig.beta1) * ModifyDeltaWeight(matDeltaWeights4[index], weight)) + 
+			(nrcConfig.beta1 * matMomentum1Weights4[index]);
+		matMomentum1Weights4[index] = deltaWeight;
+		matWeights4[index] += deltaWeight * nrcConfig.learningRate;
+
+		if (IsNanOrInf(matWeights4[index]))
+		{
+			matWeights4[index] = 0.0;
+		}
+	}
+}
+
+void StepWeights5(const uint index)
+{
+	if (index < 192)
+	{
+		float weight = matWeights5[index];
+		float deltaWeight = 
+			((1.0 - nrcConfig.beta1) * ModifyDeltaWeight(matDeltaWeights5[index], weight)) + 
+			(nrcConfig.beta1 * matMomentum1Weights5[index]);
+		matMomentum1Weights5[index] = deltaWeight;
+		matWeights5[index] += deltaWeight * nrcConfig.learningRate;
+
+		if (IsNanOrInf(matWeights5[index]))
+		{
+			matWeights5[index] = 0.0;
+		}
+	}
+}
+
+void StepBiases(const uint index)
+{
+	if (index < 3)
+	{
+		matBiases5[index] += ModifyDeltaWeight(matDeltaBiases5[index], matBiases5[index]) * nrcConfig.learningRate;
+	}
+
+	if (index < 64)
+	{
+		const float beta1 = nrcConfig.beta1;
+
+		float deltaBias = ((1.0 - beta1) * ModifyDeltaWeight(matDeltaBiases0[index], matBiases0[index])) + (beta1 * matMomentum1Biases0[index]);
+		matBiases0[index] += deltaBias * nrcConfig.learningRate;
+		matMomentum1Biases0[index] = deltaBias;
+
+		deltaBias = ((1.0 - beta1) * ModifyDeltaWeight(matDeltaBiases1[index], matBiases1[index])) + (beta1 * matMomentum1Biases1[index]);
+		matBiases1[index] += deltaBias * nrcConfig.learningRate;
+		matMomentum1Biases1[index] = deltaBias;
+
+		deltaBias = ((1.0 - beta1) * ModifyDeltaWeight(matDeltaBiases2[index], matBiases2[index])) + (beta1 * matMomentum1Biases2[index]);
+		matBiases2[index] += deltaBias * nrcConfig.learningRate;
+		matMomentum1Biases2[index] = deltaBias;
+
+		deltaBias = ((1.0 - beta1) * ModifyDeltaWeight(matDeltaBiases3[index], matBiases3[index])) + (beta1 * matMomentum1Biases3[index]);
+		matBiases3[index] += deltaBias * nrcConfig.learningRate;
+		matMomentum1Biases3[index] = deltaBias;
+
+		deltaBias = ((1.0 - beta1) * ModifyDeltaWeight(matDeltaBiases4[index], matBiases4[index])) + (beta1 * matMomentum1Biases4[index]);
+		matBiases4[index] += deltaBias * nrcConfig.learningRate;
+		matMomentum1Biases4[index] = deltaBias;
+
+		deltaBias = ((1.0 - beta1) * ModifyDeltaWeight(matDeltaBiases5[index], matBiases5[index])) + (beta1 * matMomentum1Biases5[index]);
+		matBiases5[index] += deltaBias * nrcConfig.learningRate;
+		matMomentum1Biases5[index] = deltaBias;
+	}
+}
+
+void ClearDeltaWeights(const uint index)
+{
+	if (index < 3)
+	{
+		matDeltaBiases5[index] = 0.0;
+	}
+
+	if (index < 64)
+	{
+		matDeltaBiases0[index] = 0.0;
+		matDeltaBiases1[index] = 0.0;
+		matDeltaBiases2[index] = 0.0;
+		matDeltaBiases3[index] = 0.0;
+		matDeltaBiases4[index] = 0.0;
+	}
+
+	if (index < 4096)
+	{
+		matDeltaWeights0[index] = 0.0;
+		matDeltaWeights1[index] = 0.0;
+		matDeltaWeights2[index] = 0.0;
+		matDeltaWeights3[index] = 0.0;
+		matDeltaWeights4[index] = 0.0;
+	}
+
+	if (index < 192)
+	{
+		matDeltaWeights5[index] = 0.0;
+	}
+}
+
+void main()
+{
+	const uint index = gl_GlobalInvocationID.x;
+
+	StepWeights0(index);
+	StepWeights1(index);
+	StepWeights2(index);
+	StepWeights3(index);
+	StepWeights4(index);
+	StepWeights5(index);
+	StepBiases(index);
+	ClearDeltaWeights(index);
+}

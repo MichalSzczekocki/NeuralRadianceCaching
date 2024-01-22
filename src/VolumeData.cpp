@@ -16,14 +16,14 @@ namespace en
         densityTexBinding.binding = 0;
         densityTexBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         densityTexBinding.descriptorCount = 1;
-        densityTexBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        densityTexBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
         densityTexBinding.pImmutableSamplers = nullptr;
 
         VkDescriptorSetLayoutBinding uniformBufferBinding;
         uniformBufferBinding.binding = 1;
         uniformBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         uniformBufferBinding.descriptorCount = 1;
-        uniformBufferBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        uniformBufferBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
         uniformBufferBinding.pImmutableSamplers = nullptr;
 
         std::vector<VkDescriptorSetLayoutBinding> bindings = { densityTexBinding, uniformBufferBinding };
@@ -53,7 +53,7 @@ namespace en
         poolCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolCI.pNext = nullptr;
         poolCI.flags = 0;
-        poolCI.maxSets = 1;
+        poolCI.maxSets = 2;
         poolCI.poolSizeCount = poolSizes.size();
         poolCI.pPoolSizes = poolSizes.data();
 
@@ -81,12 +81,9 @@ namespace en
                     {}),
             m_UniformData({
                                   .random = glm::vec4(0.0f),
-                                  .singleScatter = 1,
-                                  .densityFactor = 1.0f,
-                                  .g = 0.6f,
-                                  .sigmaS = 0.7f,
-                                  .sigmaE = 0.3f,
-                                  .brightness = -4.0f,
+                                  .useNN = 0,
+                                  .densityFactor = 0.35f,
+                                  .g = 0.99f,
                                   .lowPassIndex = 0 })
     {
         // Create and update descriptor set
@@ -107,7 +104,7 @@ namespace en
     {
         m_UniformData.random = glm::linearRand(glm::vec4(0.0f), glm::vec4(1.0f));
 
-        if (m_UniformData.singleScatter == 0 && m_UniformData.lowPassIndex < 1000000)
+        if (m_UniformData.lowPassIndex < 1000000)
             m_UniformData.lowPassIndex++;
 
         if (cameraChanged)
@@ -125,16 +122,9 @@ namespace en
     {
         ImGui::Begin("HPM Volume");
 
-        bool oldSingleScatter = m_UniformData.singleScatter != 0;
-        ImGui::Checkbox("Single Scatter", reinterpret_cast<bool*>(&m_UniformData.singleScatter));
-        if (m_UniformData.singleScatter == 0 && oldSingleScatter)
-            m_UniformData.lowPassIndex = 0;
-
-        ImGui::SliderFloat("Density Factor", &m_UniformData.densityFactor, 0.0f, 16.0f);
-        ImGui::SliderFloat("G", &m_UniformData.g, 0.001f, 0.999f);
-        ImGui::SliderFloat("Sigma S", &m_UniformData.sigmaS, 0.001f, 1.0f);
-        ImGui::SliderFloat("Sigma E", &m_UniformData.sigmaE, 0.001f, 1.0f);
-        ImGui::DragFloat("Brightness Exponent", &m_UniformData.brightness, 0.001f);
+        ImGui::Checkbox("Use NN", reinterpret_cast<bool*>(&m_UniformData.useNN));
+        ImGui::SliderFloat("Density Factor", &m_UniformData.densityFactor, 0.0f, 1.0f);
+        ImGui::SliderFloat("G", &m_UniformData.g, 0.0f, 1.0f);
         if (ImGui::Button("Reset Low Pass Filter"))
             m_UniformData.lowPassIndex = 0;
         ImGui::Text(std::string("Low Pass Index: " + std::to_string(m_UniformData.lowPassIndex)).c_str());

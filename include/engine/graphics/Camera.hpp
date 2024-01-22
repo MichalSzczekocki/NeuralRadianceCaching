@@ -1,8 +1,8 @@
 #pragma once
 
-#include "common.hpp"
+#include <engine/graphics/common.hpp>
 #include <glm/glm.hpp>
-#include "engine/graphics/vulkan/Buffer.hpp"
+#include <engine/graphics/vulkan/Buffer.hpp>
 
 namespace en
 {
@@ -11,7 +11,7 @@ namespace en
     struct CameraMatrices
     {
         glm::mat4 projView;
-        glm::mat4 oldProjView;
+        glm::mat4 invProjView;
     };
 
     class Camera

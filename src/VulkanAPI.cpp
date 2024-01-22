@@ -7,9 +7,11 @@
 #include <engine/graphics/vulkan/Texture2D.hpp>
 #include <engine/objects/VolumeData.hpp>
 #include <engine/graphics/DirLight.hpp>
-#include <engine/graphics/renderer/DensityPathTracer.hpp>
-#include <engine/compute/Matmul.hpp>
 #include <engine/graphics/renderer/NrcHpmRenderer.hpp>
+#include <engine/graphics/NeuralRadianceCache.hpp>
+#include <engine/graphics/PointLight.hpp>
+#include <engine/graphics/HdrEnvMap.hpp>
+#include <engine/graphics/MRHE.hpp>
 
 namespace en
 {
@@ -43,20 +45,20 @@ namespace en
         vk::Texture2D::Init();
         VolumeData::Init(m_Device);
         DirLight::Init();
-//        DensityPathTracer::Init(m_Device);
-        NrcHpmRenderer::Init(m_Device);
-        vk::Matmul::Init(m_Device);
+        NeuralRadianceCache::Init(m_Device);
         PointLight::Init(m_Device);
+        HdrEnvMap::Init(m_Device);
+        MRHE::Init(m_Device);
     }
 
     void VulkanAPI::Shutdown()
     {
         Log::Info("Shutting down VulkanAPI");
 
+        MRHE::Shutdown(m_Device);
+        HdrEnvMap::Shutdown(m_Device);
         PointLight::Shutdown(m_Device);
-        vk::Matmul::Shutdown(m_Device);
-//        DensityPathTracer::Shutdown(m_Device);
-        NrcHpmRenderer::Shutdown(m_Device);
+        NeuralRadianceCache::Shutdown(m_Device);
         DirLight::Shutdown();
         VolumeData::Shutdown(m_Device);
         vk::Texture2D::Shutdown();
@@ -181,7 +183,7 @@ namespace en
 
         // Select wanted layers
         std::vector<const char*> layers = {
-                 "VK_LAYER_KHRONOS_validation"
+                "VK_LAYER_KHRONOS_validation"
         };
 
         // List supported extensions
@@ -196,6 +198,7 @@ namespace en
 
         // Select wanted extensions
         std::vector<const char*> extensions = Window::GetVulkanExtensions();
+        extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
         // Create
         VkApplicationInfo appInfo;
@@ -395,30 +398,32 @@ namespace en
         std::vector<const char*> extensions = {
                 VK_KHR_SWAPCHAIN_EXTENSION_NAME,
                 VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
-                VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME };
+                VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
+                VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME,
+                VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME };
 
-        float priority = 1.0f;
+        float priorities[] = { 1.0f, 1.0f };
         VkDeviceQueueCreateInfo queueCreateInfo;
         queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queueCreateInfo.pNext = nullptr;
         queueCreateInfo.flags = 0;
         queueCreateInfo.queueFamilyIndex = m_GraphicsQFI;
-        queueCreateInfo.queueCount = 1;
-        queueCreateInfo.pQueuePriorities = &priority;
+        queueCreateInfo.queueCount = 2;
+        queueCreateInfo.pQueuePriorities = priorities;
 
-        // Features.
+        // Features
         VkPhysicalDeviceFeatures features{};
 
         // Atomic float features
         VkPhysicalDeviceShaderAtomicFloatFeaturesEXT atomicFloatFeatures;
         atomicFloatFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
         atomicFloatFeatures.pNext = nullptr;
-        atomicFloatFeatures.shaderBufferFloat32Atomics = VK_FALSE;
+        atomicFloatFeatures.shaderBufferFloat32Atomics = VK_TRUE;
         atomicFloatFeatures.shaderBufferFloat32AtomicAdd = VK_TRUE;
         atomicFloatFeatures.shaderBufferFloat64Atomics = VK_FALSE;
         atomicFloatFeatures.shaderBufferFloat64AtomicAdd = VK_FALSE;
-        atomicFloatFeatures.shaderSharedFloat32Atomics = VK_FALSE;
-        atomicFloatFeatures.shaderSharedFloat32AtomicAdd = VK_FALSE;
+        atomicFloatFeatures.shaderSharedFloat32Atomics = VK_TRUE;
+        atomicFloatFeatures.shaderSharedFloat32AtomicAdd = VK_TRUE;
         atomicFloatFeatures.shaderSharedFloat64Atomics = VK_FALSE;
         atomicFloatFeatures.shaderSharedFloat64AtomicAdd = VK_FALSE;
         atomicFloatFeatures.shaderImageFloat32Atomics = VK_FALSE;
@@ -445,6 +450,7 @@ namespace en
         VkQueue queue;
         vkGetDeviceQueue(m_Device, m_GraphicsQFI, 0, &m_GraphicsQueue);
         m_PresentQueue = m_GraphicsQueue;
-        m_ComputeQueue = m_GraphicsQueue;
+        //m_ComputeQueue = m_GraphicsQueue;
+        vkGetDeviceQueue(m_Device, m_GraphicsQFI, 1, &m_ComputeQueue);
     }
 }

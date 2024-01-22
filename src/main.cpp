@@ -10,23 +10,24 @@
 #include <engine/graphics/Camera.hpp>
 #include <engine/graphics/renderer/ImGuiRenderer.hpp>
 #include <imgui.h>
-#include <engine/graphics/renderer/DensityPathTracer.hpp>
 #include <engine/util/read_file.hpp>
 #include <engine/graphics/vulkan/Texture3D.hpp>
+#include <engine/objects/VolumeData.hpp>
 #include <engine/util/Input.hpp>
 #include <engine/util/Time.hpp>
 #include <engine/graphics/DirLight.hpp>
-#include <engine/graphics/NeuralRadianceCache.hpp>
-#include <engine/compute/Matrix.hpp>
-#include <engine/compute/Matmul.hpp>
 #include <mnist/mnist_reader.hpp>
 #include <filesystem>
 #include <set>
 #include <engine/util/openexr_helper.hpp>
 #include <engine/graphics/renderer/NrcHpmRenderer.hpp>
+#include <thread>
+#include <engine/graphics/NeuralRadianceCache.hpp>
+#include <engine/graphics/PointLight.hpp>
+#include <engine/graphics/HdrEnvMap.hpp>
+#include <engine/graphics/MRHE.hpp>
 
-//en::DensityPathTracer* pathTracer = nullptr;
-en::NrcHpmRenderer* pathTracer = nullptr;
+en::NrcHpmRenderer* nrcHpmRenderer = nullptr;
 
 void RecordSwapchainCommandBuffer(VkCommandBuffer commandBuffer, VkImage image)
 {
@@ -53,7 +54,7 @@ void RecordSwapchainCommandBuffer(VkCommandBuffer commandBuffer, VkImage image)
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-    if (pathTracer != nullptr && en::ImGuiRenderer::IsInitialized())
+    if (nrcHpmRenderer != nullptr && en::ImGuiRenderer::IsInitialized())
     {
         VkImageCopy imageCopy;
         imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -71,7 +72,6 @@ void RecordSwapchainCommandBuffer(VkCommandBuffer commandBuffer, VkImage image)
         vkCmdCopyImage(
                 commandBuffer,
                 en::ImGuiRenderer::GetImage(),
-                //pathTracer->GetImage(),
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -97,18 +97,19 @@ void RecordSwapchainCommandBuffer(VkCommandBuffer commandBuffer, VkImage image)
 void SwapchainResizeCallback()
 {
     en::Window::WaitForUsableSize();
-    vkDeviceWaitIdle(en::VulkanAPI::GetDevice());
+    vkDeviceWaitIdle(en::VulkanAPI::GetDevice()); // TODO: causes error with multithreaded rendering
 
     uint32_t width = en::Window::GetWidth();
     uint32_t height = en::Window::GetHeight();
-    pathTracer->ResizeFrame(width, height);
+    nrcHpmRenderer->ResizeFrame(width, height);
     en::ImGuiRenderer::Resize(width, height);
-    en::ImGuiRenderer::SetBackgroundImageView(pathTracer->GetImageView());
+    en::ImGuiRenderer::SetBackgroundImageView(nrcHpmRenderer->GetImageView());
 }
 
-void RunNrcHpm() {
-    std::string appName("Neural-Radiance-Cache");
-    uint32_t width = 600;
+void RunNrcHpm()
+{
+    std::string appName("NRC-HPM-Renderer");
+    uint32_t width = 800;
     uint32_t height = width;
 
     // Start engine
@@ -120,8 +121,16 @@ void RunNrcHpm() {
 
     // Load data
     auto density3D = en::ReadFileDensity3D("data/cloud_sixteenth", 125, 85, 153);
-    en::vk::Texture3D density3DTex(density3D, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
+    en::vk::Texture3D density3DTex(
+            density3D,
+            VK_FILTER_LINEAR,
+            VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+            VK_BORDER_COLOR_INT_OPAQUE_BLACK);
     en::VolumeData volumeData(&density3DTex);
+
+    int hdrWidth, hdrHeight;
+    std::vector<float> hdr4fData = en::ReadFileHdr4f("data/image/photostudio_4k.hdr", hdrWidth, hdrHeight);
+    en::HdrEnvMap hdrEnvMap(hdr4fData, hdrWidth, hdrHeight);
 
     // Setup rendering
     en::Camera camera(
@@ -133,71 +142,76 @@ void RunNrcHpm() {
             0.1f,
             100.0f);
 
-    en::DirLight sun(-1.57f, 0.0f, glm::vec3(1.0f));
+    en::DirLight dirLight(-1.57f, 0.0f, glm::vec3(1.0f), 1.5f);
+    en::PointLight pointLight(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), 0.0f);
 
     en::vk::Swapchain swapchain(width, height, RecordSwapchainCommandBuffer, SwapchainResizeCallback);
 
-//    pathTracer = new en::DensityPathTracer(width, height, &camera, &volumeData, &sun);
-    pathTracer = new en::NrcHpmRenderer(width, height, 0.01f, &camera, &volumeData, &sun);
+    en::NeuralRadianceCache nrc(0.01f, 0.0f, 0.5f);
+    en::MRHE mrhe(0.01f, 0.0f);
+
+    nrcHpmRenderer = new en::NrcHpmRenderer(
+            width, height,
+            100, 100,
+            camera,
+            volumeData,
+            dirLight, pointLight, hdrEnvMap,
+            nrc,
+            mrhe);
 
     en::ImGuiRenderer::Init(width, height);
-    en::ImGuiRenderer::SetBackgroundImageView(pathTracer->GetImageView());
+    en::ImGuiRenderer::SetBackgroundImageView(nrcHpmRenderer->GetImageView());
 
     swapchain.Resize(width, height); // Rerecords commandbuffers (needs to be called if renderer are created)
-
-    en::NeuralRadianceCache nrc;
-
-    // Test compute
-    std::vector<std::vector<float>> matVals = {
-            {1.0f, 0.0f, 0.0f},
-            {0.0f, 1.0f, 0.0f},
-            {0.0f, 0.0f, 1.0f}};
-    en::vk::Matrix testMat1(matVals);
-    en::Log::Info(testMat1.ToString());
-
-    matVals = {
-            {1.0f},
-            {0.5f},
-            {0.25f}};
-    en::vk::Matrix testMat2(matVals);
-    en::Log::Info(testMat2.ToString());
-
-    en::vk::Matrix testMat3 = testMat1 * testMat2;
-    en::Log::Info(testMat3.ToString());
 
     // Main loop
     VkDevice device = en::VulkanAPI::GetDevice();
     VkQueue graphicsQueue = en::VulkanAPI::GetGraphicsQueue();
     VkResult result;
     size_t counter = 0;
-    while (!en::Window::IsClosed()) {
+    while (!en::Window::IsClosed())
+    {
+        if (counter % 100 == 0)
+        {
+            nrc.PrintWeights();
+            //mrhe.PrintHashTables();
+        }
+
         // Update
         en::Window::Update();
         en::Input::Update();
         en::Time::Update();
+
         width = en::Window::GetWidth();
         height = en::Window::GetHeight();
 
         float deltaTime = static_cast<float>(en::Time::GetDeltaTime());
         uint32_t fps = en::Time::GetFps();
         en::Input::HandleUserCamInput(&camera, deltaTime);
-        en::Window::SetTitle(
-                appName + " | Delta time: " + std::to_string(deltaTime) + "s | Fps: " + std::to_string(fps));
+        en::Window::SetTitle(appName + " | Delta time: " + std::to_string(deltaTime) + "s | Fps: " + std::to_string(fps));
 
         // Physics
         camera.SetAspectRatio(width, height);
         camera.UpdateUniformBuffer();
 
-        // Render
-        pathTracer->Render(graphicsQueue);
+        nrc.ResetStats();
+        nrcHpmRenderer->Render(graphicsQueue);
         result = vkQueueWaitIdle(graphicsQueue);
         ASSERT_VULKAN(result);
+
+        if (counter % 25 == 0)
+        {
+            const en::NeuralRadianceCache::StatsData& nrcStats = nrc.GetStats();
+            en::Log::Info("NRC MSE Loss: " + std::to_string(nrcStats.mseLoss));
+        }
 
         en::ImGuiRenderer::StartFrame();
 
         volumeData.RenderImGui();
         volumeData.Update(camera.HasChanged());
-        sun.RenderImgui();
+        dirLight.RenderImgui();
+        pointLight.RenderImGui();
+        hdrEnvMap.RenderImGui();
 
         en::ImGuiRenderer::EndFrame(graphicsQueue);
         result = vkQueueWaitIdle(graphicsQueue);
@@ -205,33 +219,31 @@ void RunNrcHpm() {
 
         swapchain.DrawAndPresent();
 
-//        if (0 == (counter % 100))
-//        {
-//            pathTracer->ExportImageToHost(graphicsQueue, en::Time::GetTimeStamp());
-//        }
-
         counter++;
     }
     result = vkDeviceWaitIdle(device);
     ASSERT_VULKAN(result);
 
     // End
-    testMat1.Destroy();
-    testMat2.Destroy();
-    testMat3.Destroy();
-
     density3DTex.Destroy();
+
+    volumeData.Destroy();
 
     en::ImGuiRenderer::Shutdown();
 
-    pathTracer->Destroy();
-    delete pathTracer;
+    nrcHpmRenderer->Destroy();
+    delete nrcHpmRenderer;
+
+    mrhe.Destroy();
+    nrc.Destroy();
 
     swapchain.Destroy(true);
 
     camera.Destroy();
 
-    sun.Destroy();
+    hdrEnvMap.Destroy();
+    pointLight.Destroy();
+    dirLight.Destroy();
 
     en::VulkanAPI::Shutdown();
     en::Window::Shutdown();
@@ -239,26 +251,9 @@ void RunNrcHpm() {
     en::Log::Info("Ending " + appName);
 }
 
-void TestNN()
-{
-    en::Log::Info("Testing Neural Network");
-
-    // Mnist
-    mnist::MNIST_dataset<std::vector, std::vector<uint8_t>, uint8_t> dataset =
-            mnist::read_dataset<std::vector, std::vector, uint8_t>("data/mnist");
-
-    dataset.resize_training(20000);
-    dataset.resize_test(5000);
-
-    en::Log::Info("Number of training images = " + std::to_string(dataset.training_images.size()));
-    en::Log::Info("Number of training labels = " + std::to_string(dataset.training_labels.size()));
-    en::Log::Info("Number of test images = " + std::to_string(dataset.test_images.size()));
-    en::Log::Info("Number of test labels = " + std::to_string(dataset.test_labels.size()));
-}
-
 int main()
 {
-//    TestNN();
     RunNrcHpm();
+
     return 0;
 }
