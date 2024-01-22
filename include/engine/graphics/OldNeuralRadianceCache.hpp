@@ -1,62 +1,63 @@
-#pragma once
+/*#pragma once
 
 #include <engine/graphics/vulkan/Buffer.hpp>
 #include <array>
 
 namespace en
 {
-    class NeuralRadianceCache
-    {
-    public:
-        struct StatsData
-        {
-            float mseLoss;
-        };
+	class NeuralRadianceCache
+	{
+	public:
+		struct StatsData
+		{
+			float mseLoss;
+		};
 
-        static void Init(VkDevice device);
-        static void Shutdown(VkDevice device);
-        static VkDescriptorSetLayout GetDescSetLayout();
+		static void Init(VkDevice device);
+		static void Shutdown(VkDevice device);
+		static VkDescriptorSetLayout GetDescSetLayout();
 
-        NeuralRadianceCache(float learningRate, float weightDecay, float beta1);
+		NeuralRadianceCache(float learningRate, float weightDecay, float beta1);
 
-        void Destroy();
+		void Destroy();
 
-        void ResetStats();
+		void ResetStats();
 
-        VkDescriptorSet GetDescSet() const;
+		VkDescriptorSet GetDescSet() const;
 
-        const StatsData& GetStats();
+		const StatsData& GetStats();
 
-        void PrintWeights() const;
+		void PrintWeights() const;
 
-    private:
-        struct ConfigData
-        {
-            float learningRate;
-            float weightDecay;
-            float beta1;
-        };
+	private:
+		struct ConfigData
+		{
+			float learningRate;
+			float weightDecay;
+			float beta1;
+		};
+		
+		static VkDescriptorSetLayout m_DescSetLayout;
+		static VkDescriptorPool m_DescPool;
 
-        static VkDescriptorSetLayout m_DescSetLayout;
-        static VkDescriptorPool m_DescPool;
+		std::array<vk::Buffer*, 6> m_Weights;
+		std::array<vk::Buffer*, 6> m_DeltaWeights;
+		std::array<vk::Buffer*, 6> m_Momentum1Weights;
 
-        std::array<vk::Buffer*, 6> m_Weights;
-        std::array<vk::Buffer*, 6> m_DeltaWeights;
-        std::array<vk::Buffer*, 6> m_Momentum1Weights;
+		std::array<vk::Buffer*, 6> m_Biases;
+		std::array<vk::Buffer*, 6> m_DeltaBiases;
+		std::array<vk::Buffer*, 6> m_Momentum1Biases;
 
-        std::array<vk::Buffer*, 6> m_Biases;
-        std::array<vk::Buffer*, 6> m_DeltaBiases;
-        std::array<vk::Buffer*, 6> m_Momentum1Biases;
+		ConfigData m_ConfigData;
+		vk::Buffer m_ConfigUniformBuffer;
 
-        ConfigData m_ConfigData;
-        vk::Buffer m_ConfigUniformBuffer;
+		StatsData m_StatsData;
+		vk::Buffer m_StatsBuffer;
 
-        StatsData m_StatsData;
-        vk::Buffer m_StatsBuffer;
+		VkDescriptorSet m_DescSet;
 
-        VkDescriptorSet m_DescSet;
-
-        void InitWeightBuffers();
-        void InitBiasBuffers();
-    };
+		void InitWeightBuffers();
+		void InitBiasBuffers();
+	};
 }
+*/
