@@ -63,7 +63,8 @@ namespace en
             float trainPortion,
             const Camera& camera,
             const VolumeData& volumeData,
-            const DirLight& dirLight)
+            const DirLight& dirLight,
+            const PointLight& pointLight)
             :
             m_FrameWidth(width),
             m_FrameHeight(height),
@@ -75,7 +76,8 @@ namespace en
             m_CommandPool(0, VulkanAPI::GetGraphicsQFI()),
             m_Camera(camera),
             m_VolumeData(volumeData),
-            m_DirLight(dirLight)
+            m_DirLight(dirLight),
+            m_PointLight(pointLight)
     {
         VkDevice device = VulkanAPI::GetDevice();
 
@@ -472,6 +474,7 @@ namespace en
                 Camera::GetDescriptorSetLayout(),
                 VolumeData::GetDescriptorSetLayout(),
                 DirLight::GetDescriptorSetLayout(),
+                PointLight::GetDescriptorSetLayout(),
                 m_DescriptorSetLayout };
 
         VkPipelineLayoutCreateInfo layoutCreateInfo;

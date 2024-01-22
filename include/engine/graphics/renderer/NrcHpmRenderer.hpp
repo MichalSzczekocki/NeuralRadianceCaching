@@ -6,6 +6,9 @@
 #include <engine/graphics/Camera.hpp>
 #include <engine/graphics/DirLight.hpp>
 #include <string>
+#include <array>
+#include <engine/graphics/NeuralRadianceCache.hpp>
+#include <engine/graphics/PointLight.hpp>
 
 namespace en
 {
@@ -21,7 +24,9 @@ namespace en
                 float trainPortion,
                 const Camera& camera,
                 const VolumeData& volumeData,
-                const DirLight& dirLight);
+                const DirLight& dirLight,
+                const PointLight& pointLight
+                );
 
         void Render(VkQueue queue) const;
         void Destroy();
@@ -48,6 +53,7 @@ namespace en
         const Camera& m_Camera;
         const VolumeData& m_VolumeData;
         const DirLight& m_DirLight;
+        const PointLight& m_PointLight;
 
         VkRenderPass m_RenderPass;
         vk::Shader m_VertShader;

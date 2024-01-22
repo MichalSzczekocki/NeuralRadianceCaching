@@ -46,12 +46,14 @@ namespace en
 //        DensityPathTracer::Init(m_Device);
         NrcHpmRenderer::Init(m_Device);
         vk::Matmul::Init(m_Device);
+        PointLight::Init(m_Device);
     }
 
     void VulkanAPI::Shutdown()
     {
         Log::Info("Shutting down VulkanAPI");
 
+        PointLight::Shutdown(m_Device);
         vk::Matmul::Shutdown(m_Device);
 //        DensityPathTracer::Shutdown(m_Device);
         NrcHpmRenderer::Shutdown(m_Device);
