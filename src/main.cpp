@@ -108,7 +108,7 @@ void SwapchainResizeCallback()
 
 void RunNrcHpm()
 {
-    std::string appName("NRC-HPM-Renderer");
+    std::string appName("Neural-Radiance-Cache");
     uint32_t width = 800;
     uint32_t height = width;
 
@@ -147,8 +147,8 @@ void RunNrcHpm()
 
     en::vk::Swapchain swapchain(width, height, RecordSwapchainCommandBuffer, SwapchainResizeCallback);
 
-    en::NeuralRadianceCache nrc(0.01f, 0.0f, 0.5f);
-    en::MRHE mrhe(0.01f, 0.0f);
+    en::NeuralRadianceCache nrc(0.001f, 0.0f, 0.9f);
+    en::MRHE mrhe(1.0f, 0.0f);
 
     nrcHpmRenderer = new en::NrcHpmRenderer(
             width, height,
@@ -165,6 +165,9 @@ void RunNrcHpm()
     swapchain.Resize(width, height); // Rerecords commandbuffers (needs to be called if renderer are created)
 
     // Main loop
+    bool cameraTraining = false;
+    bool nrcTraining = true;
+
     VkDevice device = en::VulkanAPI::GetDevice();
     VkQueue graphicsQueue = en::VulkanAPI::GetGraphicsQueue();
     VkResult result;
@@ -187,7 +190,16 @@ void RunNrcHpm()
 
         float deltaTime = static_cast<float>(en::Time::GetDeltaTime());
         uint32_t fps = en::Time::GetFps();
-        en::Input::HandleUserCamInput(&camera, deltaTime);
+
+        if (cameraTraining)
+        {
+            camera.RotateAroundOrigin(glm::vec3(0.0, 1.0, 0.0), 0.1f);
+        }
+        else
+        {
+            en::Input::HandleUserCamInput(&camera, deltaTime);
+        }
+
         en::Window::SetTitle(appName + " | Delta time: " + std::to_string(deltaTime) + "s | Fps: " + std::to_string(fps));
 
         // Physics
@@ -205,6 +217,7 @@ void RunNrcHpm()
             en::Log::Info("NRC MSE Loss: " + std::to_string(nrcStats.mseLoss));
         }
 
+        // ImGui
         en::ImGuiRenderer::StartFrame();
 
         volumeData.RenderImGui();
@@ -212,6 +225,12 @@ void RunNrcHpm()
         dirLight.RenderImgui();
         pointLight.RenderImGui();
         hdrEnvMap.RenderImGui();
+
+        ImGui::Begin("Train Nrc");
+
+        ImGui::Checkbox("Camera Training", &cameraTraining);
+
+        ImGui::End();
 
         en::ImGuiRenderer::EndFrame(graphicsQueue);
         result = vkQueueWaitIdle(graphicsQueue);

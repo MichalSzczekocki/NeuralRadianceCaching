@@ -20,9 +20,11 @@ layout(set = 1, binding = 1) uniform volumeData_t
 {
 	vec4 random;
 	uint useNN;
+	uint showNonNN;
 	float densityFactor;
 	float g;
-	uint lowPassIndex;
+	int noNnSpp;
+	int withNnSpp;
 } volumeData;
 
 layout(set = 2, binding = 0) uniform dir_light_t
@@ -291,7 +293,7 @@ void EncodePosMrhe(const vec3 pos)
 		{
 			const uint index = HashFunc(uvec3(neighbours[neigh]));
 			neighbourIndices[neigh] = index;
-			
+
 			const uint linearIndex = (level * 8) + neigh;
 			allNeighbourIndices[linearIndex] = index;
 		}
@@ -311,22 +313,22 @@ void EncodePosMrhe(const vec3 pos)
 		vec2 zLerpFeatures[4];
 		for (uint i = 0; i < 4; i++)
 		{
-			zLerpFeatures[i] = 
-				(neighbourFeatures[i] * (1.0 - lerpFactors.z)) + 
-				(neighbourFeatures[4 + i] * lerpFactors.z);
+			zLerpFeatures[i] =
+			(neighbourFeatures[i] * (1.0 - lerpFactors.z)) +
+			(neighbourFeatures[4 + i] * lerpFactors.z);
 		}
 
 		vec2 yLerpFeatures[2];
 		for (uint i = 0; i < 2; i++)
 		{
 			yLerpFeatures[i] =
-				(zLerpFeatures[i] * (1.0 - lerpFactors.y)) +
-				(zLerpFeatures[2 + i] * lerpFactors.y);
+			(zLerpFeatures[i] * (1.0 - lerpFactors.y)) +
+			(zLerpFeatures[2 + i] * lerpFactors.y);
 		}
 
 		vec2 xLerpFeatures =
-			(yLerpFeatures[0] * (1.0 - lerpFactors.x)) +
-			(yLerpFeatures[1] * lerpFactors.x);
+		(yLerpFeatures[0] * (1.0 - lerpFactors.x)) +
+		(yLerpFeatures[1] * lerpFactors.x);
 
 		// Store in feature array
 		mrheFeatures[(level * mrhe.featureCount) + 0] = xLerpFeatures.x;
@@ -387,7 +389,7 @@ vec3[2] find_entry_exit(vec3 ro, vec3 rd)
 		ro += dist * rd;
 	} while (dist > MIN_RAY_DISTANCE && dist < MAX_RAY_DISTANCE);
 	vec3 exit = ro;
-	
+
 	return vec3[2]( entry, exit );
 }
 
@@ -395,7 +397,7 @@ void gen_sample_points(vec3 start_pos, vec3 end_pos, out vec3 samples[SAMPLE_COU
 {
 	vec3 dir = end_pos - start_pos;
 	for (int i = 0; i < SAMPLE_COUNT; i++)
-		samples[i] = start_pos + dir * (float(i) / float(SAMPLE_COUNT));
+	samples[i] = start_pos + dir * (float(i) / float(SAMPLE_COUNT));
 }
 
 vec3 get_sky_uvw(vec3 pos)
@@ -410,27 +412,27 @@ float getDensity(vec3 pos)
 
 float hg_phase_func(const float cos_theta)
 {
-#ifdef IMPORTANCE_SAMPLING
+	#ifdef IMPORTANCE_SAMPLING
 	return 1.0;
-#else
+	#else
 	const float g = volumeData.g;
 	const float g2 = g * g;
 	const float result = 0.5 * (1 - g2) / pow(1 + g2 - (2 * g * cos_theta), 1.5);
 	return result;
-#endif
+	#endif
 }
 
 mat4 rotationMatrix(vec3 axis, float angle)
 {
-    axis = normalize(axis);
-    float s = sin(angle);
-    float c = cos(angle);
-    float oc = 1.0 - c;
-    
-    return mat4(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
-                oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
-                oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
-                0.0,                                0.0,                                0.0,                                1.0);
+	axis = normalize(axis);
+	float s = sin(angle);
+	float c = cos(angle);
+	float oc = 1.0 - c;
+
+	return mat4(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+				oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
+				oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
+				0.0,                                0.0,                                0.0,                                1.0);
 }
 
 vec3 NewRayDir(vec3 oldRayDir)
@@ -550,7 +552,7 @@ void ApplyWeights0()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr0[inCol];
@@ -567,7 +569,7 @@ void ApplyWeights1()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr1[inCol];
@@ -584,7 +586,7 @@ void ApplyWeights2()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr2[inCol];
@@ -601,7 +603,7 @@ void ApplyWeights3()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr3[inCol];
@@ -618,7 +620,7 @@ void ApplyWeights4()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr4[inCol];
@@ -635,7 +637,7 @@ void ApplyWeights5()
 	for (uint outRow = 0; outRow < 3; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr5[inCol];
@@ -721,19 +723,19 @@ void Forward()
 
 	ApplyWeights0();
 	ActivateNr1();
-	
+
 	ApplyWeights1();
 	ActivateNr2();
-	
+
 	ApplyWeights2();
 	ActivateNr3();
-	
+
 	ApplyWeights3();
 	ActivateNr4();
 
 	ApplyWeights4();
 	ActivateNr5();
-	
+
 	ApplyWeights5();
 	ActivateNr6();
 
@@ -792,7 +794,7 @@ void Backprop4()
 			float deltaWeight = -nr4[col] * nr5[row];
 			atomicAdd(matDeltaWeights4[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases4[row], -nr5[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -826,7 +828,7 @@ void Backprop3()
 			float deltaWeight = -nr3[col] * nr4[row];
 			atomicAdd(matDeltaWeights3[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases3[row], -nr4[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -860,7 +862,7 @@ void Backprop2()
 			float deltaWeight = -nr2[col] * nr3[row];
 			atomicAdd(matDeltaWeights2[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases2[row], -nr3[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -894,7 +896,7 @@ void Backprop1()
 			float deltaWeight = -nr1[col] * nr2[row];
 			atomicAdd(matDeltaWeights1[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases1[row], -nr2[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -928,7 +930,7 @@ void Backprop0()
 			float deltaWeight = -nr0[col] * nr1[row];
 			atomicAdd(matDeltaWeights0[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases0[row], -nr1[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -1008,9 +1010,9 @@ void Backprop(vec3 target, const vec3 pos, const vec3 dir)
 	const float mseLoss = ((error.x * error.x) + (error.y * error.y) + (error.z * error.z)) / 3.0;
 	atomicAdd(nrcStats.mseLoss, mseLoss * ONE_OVER_PIXEL_COUNT);
 
-	nr6[0] = sign(error.x);
-	nr6[1] = sign(error.y);
-	nr6[2] = sign(error.z);
+	nr6[0] = 2.0 * error.x;
+	nr6[1] = 2.0 * error.y;
+	nr6[2] = 2.0 * error.z;
 
 	//debugPrintfEXT("%f, %f, %f\n", nr6[0], nr6[1], nr6[2]);
 	//debugPrintfEXT("%f, %f, %f\n", target.x, target.y, target.z);
@@ -1082,8 +1084,8 @@ vec3 SampleHdrEnvMap(const vec3 dir, const bool hpm)
 	const vec2 invAtan = vec2(0.1591, 0.3183);
 
 	vec2 uv = vec2(atan(dir.z, dir.x), asin(dir.y));
-    uv *= invAtan;
-    uv += 0.5;
+	uv *= invAtan;
+	uv += 0.5;
 
 	const float strength = hpm ? hdrEnvMapData.hpmStrength : hdrEnvMapData.directStrength;
 
@@ -1123,10 +1125,10 @@ vec3 TracePath(const vec3 rayOrigin, const vec3 rayDir)
 	float transmittance = 1.0;
 
 	const vec3 entry = find_entry_exit(rayOrigin, rayDir)[0];
-	
+
 	vec3 currentPoint = entry;
 	vec3 lastPoint = entry;
-	
+
 	vec3 currentDir = rayDir;
 	vec3 lastDir = vec3(0.0);
 
@@ -1178,7 +1180,7 @@ void TracePathAndLearn(const vec3 rayOrigin, const vec3 rayDir)
 
 	vec3 currentPoint = entry;
 	vec3 lastPoint = entry;
-	
+
 	vec3 currentDir = rayDir;
 	vec3 lastDir = vec3(0.0);
 
