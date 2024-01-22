@@ -148,12 +148,12 @@ void RunNrcHpm()
             0.1f,
             100.0f);
 
-    en::DirLight dirLight(-1.57f, 0.0f, glm::vec3(1.0f), 1.5f);
+    en::DirLight dirLight(-1.57f, 0.0f, glm::vec3(1.0f), 8.0f);
     en::PointLight pointLight(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), 0.0f);
 
     en::vk::Swapchain swapchain(width, height, RecordSwapchainCommandBuffer, SwapchainResizeCallback);
 
-    en::NeuralRadianceCache nrc(0.01f, 0.0f, 0.5f);
+    en::NeuralRadianceCache nrc(0.001f, 0.0f, 0.5f);
     en::MRHE mrhe(0.01f, 0.0f);
 
     nrcHpmRenderer = new en::NrcHpmRenderer(
