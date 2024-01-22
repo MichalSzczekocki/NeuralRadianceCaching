@@ -6,7 +6,7 @@
 #include <engine/graphics/Camera.hpp>
 #include <engine/graphics/vulkan/Texture2D.hpp>
 #include <engine/objects/VolumeData.hpp>
-#include <engine/graphics/Sun.hpp>
+#include <engine/graphics/DirLight.hpp>
 #include <engine/graphics/renderer/DensityPathTracer.hpp>
 #include <engine/compute/Matmul.hpp>
 #include <engine/graphics/renderer/NrcHpmRenderer.hpp>
@@ -42,7 +42,7 @@ namespace en
         Camera::Init();
         vk::Texture2D::Init();
         VolumeData::Init(m_Device);
-        Sun::Init();
+        DirLight::Init();
 //        DensityPathTracer::Init(m_Device);
         NrcHpmRenderer::Init(m_Device);
         vk::Matmul::Init(m_Device);
@@ -55,7 +55,7 @@ namespace en
         vk::Matmul::Shutdown(m_Device);
 //        DensityPathTracer::Shutdown(m_Device);
         NrcHpmRenderer::Shutdown(m_Device);
-        Sun::Shutdown();
+        DirLight::Shutdown();
         VolumeData::Shutdown(m_Device);
         vk::Texture2D::Shutdown();
         Camera::Shutdown();

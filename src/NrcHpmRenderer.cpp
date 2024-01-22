@@ -61,9 +61,9 @@ namespace en
             uint32_t width,
             uint32_t height,
             float trainPortion,
-            const Camera* camera,
-            const VolumeData* volumeData,
-            const Sun* sun)
+            const Camera& camera,
+            const VolumeData& volumeData,
+            const DirLight& dirLight)
             :
             m_FrameWidth(width),
             m_FrameHeight(height),
@@ -75,7 +75,7 @@ namespace en
             m_CommandPool(0, VulkanAPI::GetGraphicsQFI()),
             m_Camera(camera),
             m_VolumeData(volumeData),
-            m_Sun(sun)
+            m_DirLight(dirLight)
     {
         VkDevice device = VulkanAPI::GetDevice();
 
@@ -471,7 +471,7 @@ namespace en
         std::vector<VkDescriptorSetLayout> layouts = {
                 Camera::GetDescriptorSetLayout(),
                 VolumeData::GetDescriptorSetLayout(),
-                Sun::GetDescriptorSetLayout(),
+                DirLight::GetDescriptorSetLayout(),
                 m_DescriptorSetLayout };
 
         VkPipelineLayoutCreateInfo layoutCreateInfo;
@@ -1167,9 +1167,9 @@ namespace en
 
         // Bind descriptor sets
         std::vector<VkDescriptorSet> descSets = {
-                m_Camera->GetDescriptorSet(),
-                m_VolumeData->GetDescriptorSet(),
-                m_Sun->GetDescriptorSet(),
+                m_Camera.GetDescriptorSet(),
+                m_VolumeData.GetDescriptorSet(),
+                m_DirLight.GetDescriptorSet(),
                 m_DescriptorSet };
 
         vkCmdBindDescriptorSets(

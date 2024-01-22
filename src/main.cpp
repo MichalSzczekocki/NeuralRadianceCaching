@@ -15,7 +15,7 @@
 #include <engine/graphics/vulkan/Texture3D.hpp>
 #include <engine/util/Input.hpp>
 #include <engine/util/Time.hpp>
-#include <engine/graphics/Sun.hpp>
+#include <engine/graphics/DirLight.hpp>
 #include <engine/graphics/NeuralRadianceCache.hpp>
 #include <engine/compute/Matrix.hpp>
 #include <engine/compute/Matmul.hpp>
@@ -133,7 +133,7 @@ void RunNrcHpm() {
             0.1f,
             100.0f);
 
-    en::Sun sun(-1.57f, 0.0f, glm::vec3(1.0f));
+    en::DirLight sun(-1.57f, 0.0f, glm::vec3(1.0f));
 
     en::vk::Swapchain swapchain(width, height, RecordSwapchainCommandBuffer, SwapchainResizeCallback);
 

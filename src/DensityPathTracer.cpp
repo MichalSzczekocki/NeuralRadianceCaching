@@ -62,7 +62,7 @@ namespace en
             uint32_t height,
             const Camera* camera,
             const VolumeData* volumeData,
-            const Sun* sun)
+            const DirLight* sun)
             :
             m_FrameWidth(width),
             m_FrameHeight(height),
@@ -452,7 +452,7 @@ namespace en
         std::vector<VkDescriptorSetLayout> layouts = {
                 Camera::GetDescriptorSetLayout(),
                 VolumeData::GetDescriptorSetLayout(),
-                Sun::GetDescriptorSetLayout(),
+                DirLight::GetDescriptorSetLayout(),
                 m_DescriptorSetLayout };
 
         VkPipelineLayoutCreateInfo layoutCreateInfo;

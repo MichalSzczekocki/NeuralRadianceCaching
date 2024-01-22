@@ -4,7 +4,7 @@
 #include <engine/graphics/vulkan/CommandPool.hpp>
 #include <engine/objects/VolumeData.hpp>
 #include <engine/graphics/Camera.hpp>
-#include <engine/graphics/Sun.hpp>
+#include <engine/graphics/DirLight.hpp>
 #include <string>
 
 namespace en
@@ -19,9 +19,9 @@ namespace en
                 uint32_t width,
                 uint32_t height,
                 float trainPortion,
-                const Camera* camera,
-                const VolumeData* volumeData,
-                const Sun* sun);
+                const Camera& camera,
+                const VolumeData& volumeData,
+                const DirLight& dirLight);
 
         void Render(VkQueue queue) const;
         void Destroy();
@@ -45,9 +45,9 @@ namespace en
         uint32_t m_TrainWidth;
         uint32_t m_TrainHeight;
 
-        const Camera* m_Camera;
-        const VolumeData* m_VolumeData;
-        const Sun* m_Sun;
+        const Camera& m_Camera;
+        const VolumeData& m_VolumeData;
+        const DirLight& m_DirLight;
 
         VkRenderPass m_RenderPass;
         vk::Shader m_VertShader;
