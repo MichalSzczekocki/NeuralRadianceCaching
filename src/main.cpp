@@ -16,16 +16,10 @@
 #include <engine/util/Input.hpp>
 #include <engine/util/Time.hpp>
 #include <engine/graphics/DirLight.hpp>
-#include <mnist/mnist_reader.hpp>
-#include <filesystem>
-#include <set>
-#include <engine/util/openexr_helper.hpp>
 #include <engine/graphics/renderer/NrcHpmRenderer.hpp>
-#include <thread>
 #include <engine/graphics/NeuralRadianceCache.hpp>
 #include <engine/graphics/PointLight.hpp>
 #include <engine/graphics/HdrEnvMap.hpp>
-#include <engine/graphics/MRHE.hpp>
 
 en::NrcHpmRenderer* nrcHpmRenderer = nullptr;
 
@@ -101,7 +95,7 @@ void SwapchainResizeCallback()
 
     uint32_t width = en::Window::GetWidth();
     uint32_t height = en::Window::GetHeight();
-//    nrcHpmRenderer->ResizeFrame(width, height);
+    //nrcHpmRenderer->ResizeFrame(width, height);
     en::ImGuiRenderer::Resize(width, height);
     en::ImGuiRenderer::SetBackgroundImageView(nrcHpmRenderer->GetImageView());
 }
@@ -109,7 +103,7 @@ void SwapchainResizeCallback()
 void RunNrcHpm()
 {
     std::string appName("Neural-Radiance-Cache");
-    uint32_t width = 800;
+    uint32_t width = 768; // Multiple of 128 for nrc batch size
     uint32_t height = width;
 
     // Start engine
@@ -119,6 +113,21 @@ void RunNrcHpm()
     en::Input::Init(en::Window::GetGLFWHandle());
     en::VulkanAPI::Init(appName);
 
+    // Lighting
+    en::DirLight dirLight(-1.57f, 0.0f, glm::vec3(1.0f), 1.5f);
+    en::PointLight pointLight(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), 0.0f);
+
+    int hdrWidth, hdrHeight;
+    std::vector<float> hdr4fData = en::ReadFileHdr4f("data/image/mountain.hdr", hdrWidth, hdrHeight);
+    std::array<std::vector<float>, 2> hdrCdf = en::Hdr4fToCdf(hdr4fData, hdrWidth, hdrHeight);
+    en::HdrEnvMap hdrEnvMap(
+            0.0f,
+            hdrWidth,
+            hdrHeight,
+            hdr4fData,
+            hdrCdf[0],
+            hdrCdf[1]);
+
     // Load data
     auto density3D = en::ReadFileDensity3D("data/cloud_sixteenth", 125, 85, 153);
     en::vk::Texture3D density3DTex(
@@ -127,16 +136,6 @@ void RunNrcHpm()
             VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
             VK_BORDER_COLOR_INT_OPAQUE_BLACK);
     en::VolumeData volumeData(&density3DTex);
-
-    int hdrWidth, hdrHeight;
-    std::vector<float> hdr4fData = en::ReadFileHdr4f("data/image/mountain.hdr", hdrWidth, hdrHeight);
-    std::array<std::vector<float>, 2> hdrCdf = en::Hdr4fToCdf(hdr4fData, hdrWidth, hdrHeight);
-    en::HdrEnvMap hdrEnvMap(
-            hdrWidth,
-            hdrHeight,
-            hdr4fData,
-            hdrCdf[0],
-            hdrCdf[1]);
 
     // Setup rendering
     en::Camera camera(
@@ -148,25 +147,21 @@ void RunNrcHpm()
             0.1f,
             100.0f);
 
-    en::DirLight dirLight(-1.57f, 0.0f, glm::vec3(1.0f), 0.0f);
-    en::PointLight pointLight(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), 0.0f);
-
     en::vk::Swapchain swapchain(width, height, RecordSwapchainCommandBuffer, SwapchainResizeCallback);
 
-//    en::NeuralRadianceCache nrc(0.0001f, 0.1f, 0.9f);
-//    en::MRHE mrhe(0.1f, 0.0f);
-
-    en::NeuralRadianceCache nrc(6, 64, 0.001f);
-    nrc.Init();
+    en::NeuralRadianceCache nrc(32, 16, 0.001f, 128); // Batch size is multiple of 128
+    nrc.SetPosFrequencyEncoding(16);
+    //nrc.SetPosMrheEncoding(16, 512, 8, 16384, 4, 0.01f);
+    nrc.SetDirFrequencyEncoding(4);
+    nrc.SetDirOneBlobEncoding(4);
 
     nrcHpmRenderer = new en::NrcHpmRenderer(
             width, height,
-            100, 100,
+            128, 128, // Multiple of 128
             camera,
             volumeData,
             dirLight, pointLight, hdrEnvMap,
             nrc);
-//            mrhe);
 
     en::ImGuiRenderer::Init(width, height);
     en::ImGuiRenderer::SetBackgroundImageView(nrcHpmRenderer->GetImageView());
@@ -185,7 +180,7 @@ void RunNrcHpm()
     {
         if (counter % 100 == 0)
         {
-//            nrc.PrintWeights();
+            //nrc.PrintWeights();
             //mrhe.PrintHashTables();
         }
 
@@ -215,15 +210,15 @@ void RunNrcHpm()
         camera.SetAspectRatio(width, height);
         camera.UpdateUniformBuffer();
 
-//        nrc.ResetStats();
+        //nrc.ResetStats();
         nrcHpmRenderer->Render(graphicsQueue);
         result = vkQueueWaitIdle(graphicsQueue);
         ASSERT_VULKAN(result);
 
         if (counter % 25 == 0)
         {
-//            const en::NeuralRadianceCache::StatsData& nrcStats = nrc.GetStats();
-//            en::Log::Info("NRC MSE Loss: " + std::to_string(nrcStats.mseLoss));
+            //const en::NeuralRadianceCache::StatsData& nrcStats = nrc.GetStats();
+            //en::Log::Info("NRC MSE Loss: " + std::to_string(nrcStats.mseLoss));
         }
 
         // ImGui
@@ -253,21 +248,20 @@ void RunNrcHpm()
     ASSERT_VULKAN(result);
 
     // End
-    density3DTex.Destroy();
-
-    volumeData.Destroy();
-
     en::ImGuiRenderer::Shutdown();
 
     nrcHpmRenderer->Destroy();
     delete nrcHpmRenderer;
 
-//    mrhe.Destroy();
-//    nrc.Destroy();
+    nrc.Destroy();
 
     swapchain.Destroy(true);
 
     camera.Destroy();
+
+
+    density3DTex.Destroy();
+    volumeData.Destroy();
 
     hdrEnvMap.Destroy();
     pointLight.Destroy();

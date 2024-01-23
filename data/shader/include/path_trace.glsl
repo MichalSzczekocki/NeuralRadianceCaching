@@ -53,8 +53,8 @@ vec3 SampleHdrEnvMap(const vec2 dir, const bool hpm)
 	const vec2 invAtan = vec2(0.1591, 0.3183);
 
 	vec2 uv = dir;
-    uv *= invAtan;
-    uv += 0.5;
+	uv *= invAtan;
+	uv += 0.5;
 
 	const float strength = hpm ? hdrEnvMapData.hpmStrength : hdrEnvMapData.directStrength;
 	return texture(hdrEnvMap, uv).xyz * strength;
@@ -69,6 +69,11 @@ vec3 SampleHdrEnvMap(const vec3 dir, const bool hpm)
 
 vec3 SampleHdrEnvMap(const vec3 pos, const vec3 dir, uint sampleCount)
 {
+	if (hdrEnvMapData.hpmStrength == 0.0)
+	{
+		return vec3(0.0);
+	}
+
 	vec3 light = vec3(0.0);
 
 	// Half ray importance sampled

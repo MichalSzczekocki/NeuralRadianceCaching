@@ -25,12 +25,10 @@ namespace en
                 const DirLight& dirLight,
                 const PointLight& pointLight,
                 const HdrEnvMap& hdrEnvMap,
-                const NeuralRadianceCache& nrc);
+                NeuralRadianceCache& nrc);
 
         void Render(VkQueue queue) const;
         void Destroy();
-
-        //void ResizeFrame(uint32_t width, uint32_t height);
 
         VkImage GetImage() const;
         VkImageView GetImageView() const;
@@ -62,6 +60,7 @@ namespace en
             uint32_t inputFeatureCount;
             float nrcLearningRate;
             float mrheLearningRate;
+            uint32_t batchSize;
         };
 
         static VkDescriptorSetLayout m_DescSetLayout;
@@ -78,7 +77,7 @@ namespace en
         const DirLight& m_DirLight;
         const PointLight& m_PointLight;
         const HdrEnvMap& m_HdrEnvMap;
-        const NeuralRadianceCache& m_Nrc;
+        NeuralRadianceCache& m_Nrc;
 
         VkPipelineLayout m_PipelineLayout;
 
@@ -89,6 +88,18 @@ namespace en
         vk::Shader m_GenRaysShader;
         VkPipeline m_GenRaysPipeline;
 
+        vk::Shader m_FilterRaysShader;
+        VkPipeline m_FilterRaysPipeline;
+
+        vk::Shader m_ForwardShader;
+        VkPipeline m_ForwardPipeline;
+
+        vk::Shader m_BackpropShader;
+        VkPipeline m_BackpropPipeline;
+
+        vk::Shader m_GradientStepShader;
+        VkPipeline m_GradientStepPipeline;
+
         vk::Shader m_RenderShader;
         VkPipeline m_RenderPipeline;
 
@@ -96,9 +107,29 @@ namespace en
         VkDeviceMemory m_OutputImageMemory;
         VkImageView m_OutputImageView;
 
-        VkImage m_PrimaryRayImage; // rgb32f primary ray output color + a32f transmittance
-        VkDeviceMemory m_PrimaryRayImageMemory;
-        VkImageView m_PrimaryRayImageView;
+        VkImage m_PrimaryRayColorImage; // rgb32f primary ray output color + a32f transmittance
+        VkDeviceMemory m_PrimaryRayColorImageMemory;
+        VkImageView m_PrimaryRayColorImageView;
+
+        VkImage m_PrimaryRayInfoImage;
+        VkDeviceMemory m_PrimaryRayInfoImageMemory;
+        VkImageView m_PrimaryRayInfoImageView;
+
+        VkImage m_NeuralRayOriginImage;
+        VkDeviceMemory m_NeuralRayOriginImageMemory;
+        VkImageView m_NeuralRayOriginImageView;
+
+        VkImage m_NeuralRayDirImage;
+        VkDeviceMemory m_NeuralRayDirImageMemory;
+        VkImageView m_NeuralRayDirImageView;
+
+        VkImage m_NeuralRayColorImage;
+        VkDeviceMemory m_NeuralRayColorImageMemory;
+        VkImageView m_NeuralRayColorImageView;
+
+        VkImage m_NeuralRayTargetImage;
+        VkDeviceMemory m_NeuralRayTargetImageMemory;
+        VkImageView m_NeuralRayTargetImageView;
 
         VkDescriptorSet m_DescSet;
 
@@ -110,10 +141,19 @@ namespace en
         void InitSpecializationConstants();
 
         void CreateGenRaysPipeline(VkDevice device);
+        void CreateFilterRaysPipeline(VkDevice device);
+        void CreateForwardPipeline(VkDevice device);
+        void CreateBackpropPipeline(VkDevice device);
+        void CreateGradientStepPipeline(VkDevice device);
         void CreateRenderPipeline(VkDevice device);
 
         void CreateOutputImage(VkDevice device);
-        void CreatePrimaryRayImage(VkDevice device);
+        void CreatePrimaryRayColorImage(VkDevice device);
+        void CreatePrimaryRayInfoImage(VkDevice device);
+        void CreateNeuralRayOriginImage(VkDevice device);
+        void CreateNeuralRayDirImage(VkDevice device);
+        void CreateNeuralRayColorImage(VkDevice device);
+        void CreateNeuralRayTargetImage(VkDevice device);
 
         void AllocateAndUpdateDescriptorSet(VkDevice device);
 

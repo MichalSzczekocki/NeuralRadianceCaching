@@ -1,98 +1,87 @@
-/*float GetMrheFeature(const uint level, const uint entryIndex, const uint featureIndex)
+float GetMrheFeature(const uint level, const uint entryIndex, const uint featureIndex)
 {
-	const uint linearIndex = (mrhe.hashTableSize * mrhe.featureCount * level) + (entryIndex * mrhe.featureCount) + featureIndex;
-	const float feature = mrHashTable[linearIndex];
-	return feature;
+    const uint linearIndex = (POS_HASH_TABLE_SIZE * POS_FEATURE_COUNT * level) + (entryIndex * POS_FEATURE_COUNT) + featureIndex;
+    const float feature = mrhe[linearIndex];
+    return feature;
 }
 
 uint HashFunc(const uvec3 pos)
 {
-	const uvec3 primes = uvec3(1, 19349663, 83492791);
-	uint hash = (pos.x * primes.x) + (pos.y * primes.y) + (pos.z * primes.z);
-	hash %= mrhe.hashTableSize;
-	return hash;
+    const uvec3 primes = uvec3(1, 19349663, 83492791);
+    uint hash = (pos.x * primes.x) + (pos.y * primes.y) + (pos.z * primes.z);
+    hash %= POS_HASH_TABLE_SIZE;
+    return hash;
 }
 
-float mrheFeatures[32]; // 16 * 2
-uint allNeighbourIndices[128]; // 16 * (2^3)
-vec3 allLerpFactors[16];
-
-void EncodePosMrhe(const vec3 pos)
+void EncodePosMrhe(const vec3 normPos, const uint mrheInputBaseIndex)
 {
-	const vec3 normPos = (pos / skySize) + vec3(0.5);
+    for (uint level = 0; level < POS_LEVEL_COUNT; level++)
+    {
+        // Get level resolution
+        const uint res = mrheResolutions[level];
+        const vec3 resPos = normPos * float(res);
 
-	for (uint level = 0; level < mrhe.levelCount; level++)
-	{
-		// Get level resolution
-		const uint res = mrhe.resolutions[level];
-		const vec3 resPos = normPos * float(res);
+        // Get all 8 neighbours
+        const vec3 floorPos = floor(resPos);
 
-		// Get all 8 neighbours
-		const vec3 floorPos = floor(resPos);
+        vec3 neighbours[8]; // 2^3
+        for (uint x = 0; x < 2; x++)
+        {
+            for (uint y = 0; y < 2; y++)
+            {
+                for (uint z = 0; z < 2; z++)
+                {
+                    uint linearIndex = (x * 4) + (y * 2) + z;
+                    neighbours[linearIndex] = floorPos + vec3(uvec3(x, y, z));
+                }
+            }
+        }
 
-		vec3 neighbours[8]; // 2^3
-		for (uint x = 0; x < 2; x++)
-		{
-			for (uint y = 0; y < 2; y++)
-			{
-				for (uint z = 0; z < 2; z++)
-				{
-					uint linearIndex = (x * 4) + (y * 2) + z;
-					neighbours[linearIndex] = floorPos + vec3(uvec3(x, y, z));
-				}
-			}
-		}
+        // Get neighbour indices and store
+        uint neighbourIndices[8];
+        for (uint neigh = 0; neigh < 8; neigh++)
+        {
+            const uint index = HashFunc(uvec3(neighbours[neigh]));
+            neighbourIndices[neigh] = index;
+        }
 
-		// Get neighbour indices and store
-		uint neighbourIndices[8];
-		for (uint neigh = 0; neigh < 8; neigh++)
-		{
-			const uint index = HashFunc(uvec3(neighbours[neigh]));
-			neighbourIndices[neigh] = index;
-			
-			const uint linearIndex = (level * 8) + neigh;
-			allNeighbourIndices[linearIndex] = index;
-		}
+        // Extract neighbour features
+        float neighbourFeatures[8 * POS_FEATURE_COUNT];
+        for (uint neigh = 0; neigh < 8; neigh++)
+        {
+            const uint entryIndex = neighbourIndices[neigh];
+            for (uint feature = 0; feature < POS_FEATURE_COUNT; feature++)
+            {
+                neighbourFeatures[(neigh * POS_FEATURE_COUNT) + feature] = GetMrheFeature(level, entryIndex, feature);
+            }
+        }
 
-		// Extract neighbour features
-		vec2 neighbourFeatures[8];
-		for (uint neigh = 0; neigh < 8; neigh++)
-		{
-			const uint entryIndex = neighbourIndices[neigh];
-			neighbourFeatures[neigh] = vec2(GetMrheFeature(level, entryIndex, 0), GetMrheFeature(level, entryIndex, 1));
-		}
+        // Linearly interpolate neightbour features
+        vec3 lerpFactors = resPos - neighbours[0];
+        float linearLerpFactor[8];
+        for (uint neigh = 0; neigh < 8; neigh++)
+        {
+            const float xFactor = (neigh >> 2) > 0 ? (1.0 - lerpFactors.x) : lerpFactors.x;
+            const float yFactor = (neigh >> 1) > 0 ? (1.0 - lerpFactors.y) : lerpFactors.y;
+            const float zFactor = (neigh >> 0) > 0 ? (1.0 - lerpFactors.z) : lerpFactors.z;
+            linearLerpFactor[neigh] = xFactor * yFactor * zFactor;
+        }
 
-		// Linearly interpolate neightbour features
-		vec3 lerpFactors = pos - neighbours[0];
-		allLerpFactors[level] = lerpFactors;
-
-		vec2 zLerpFeatures[4];
-		for (uint i = 0; i < 4; i++)
-		{
-			zLerpFeatures[i] = 
-				(neighbourFeatures[i] * (1.0 - lerpFactors.z)) + 
-				(neighbourFeatures[4 + i] * lerpFactors.z);
-		}
-
-		vec2 yLerpFeatures[2];
-		for (uint i = 0; i < 2; i++)
-		{
-			yLerpFeatures[i] =
-				(zLerpFeatures[i] * (1.0 - lerpFactors.y)) +
-				(zLerpFeatures[2 + i] * lerpFactors.y);
-		}
-
-		vec2 xLerpFeatures =
-			(yLerpFeatures[0] * (1.0 - lerpFactors.x)) +
-			(yLerpFeatures[1] * lerpFactors.x);
-
-		// Store in feature array
-		mrheFeatures[(level * mrhe.featureCount) + 0] = xLerpFeatures.x;
-		mrheFeatures[(level * mrhe.featureCount) + 1] = xLerpFeatures.y;
-	}
+        // Store
+        const uint levelBaseIndex = mrheInputBaseIndex + (level * POS_FEATURE_COUNT);
+        for (uint feature = 0; feature < POS_FEATURE_COUNT; feature++)
+        {
+            float sum = 0.0;
+            for (uint neigh = 0; neigh < 8; neigh++)
+            {
+                sum += linearLerpFactor[neigh] * neighbourFeatures[(neigh * POS_FEATURE_COUNT) + feature];
+            }
+            renderNeurons[levelBaseIndex + feature] = sum;
+        }
+    }
 }
 
-void BackpropMrhe()
+/*void BackpropMrhe()
 {
 	for (uint level = 0; level < 16; level++)
 	{
@@ -128,5 +117,4 @@ void BackpropMrhe()
 			}
 		}
 	}
-}
-*/
+}*/

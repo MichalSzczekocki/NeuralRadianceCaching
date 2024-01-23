@@ -1,6 +1,5 @@
 #include <engine/graphics/VulkanAPI.hpp>
 #include <vector>
-#include <map>
 #include <engine/util/Log.hpp>
 #include <engine/graphics/Window.hpp>
 #include <engine/graphics/Camera.hpp>
@@ -11,7 +10,6 @@
 #include <engine/graphics/NeuralRadianceCache.hpp>
 #include <engine/graphics/PointLight.hpp>
 #include <engine/graphics/HdrEnvMap.hpp>
-#include <engine/graphics/MRHE.hpp>
 
 namespace en
 {
@@ -48,7 +46,6 @@ namespace en
         NeuralRadianceCache::Init(m_Device);
         PointLight::Init(m_Device);
         HdrEnvMap::Init(m_Device);
-        MRHE::Init(m_Device);
         NrcHpmRenderer::Init(m_Device);
     }
 
@@ -57,7 +54,6 @@ namespace en
         Log::Info("Shutting down VulkanAPI");
 
         NrcHpmRenderer::Shutdown(m_Device);
-        MRHE::Shutdown(m_Device);
         HdrEnvMap::Shutdown(m_Device);
         PointLight::Shutdown(m_Device);
         NeuralRadianceCache::Shutdown(m_Device);
@@ -306,6 +302,12 @@ namespace en
                 }
             }
 
+            // Cooperative matrix types
+            //uint32_t coopMatPropertyCount;
+            //vkGetPhysicalDeviceCooperativeMatrixPropertiesNV(physicalDevice, &coopMatPropertyCount, nullptr);
+            //std::vector<VkCooperativeMatrixPropertiesNV> coopMatProperties(coopMatPropertyCount);
+            //vkGetPhysicalDeviceCooperativeMatrixPropertiesNV(physicalDevice, &coopMatPropertyCount, coopMatProperties.data());
+
             // Surface support
             VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
             vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, m_Surface, &surfaceCapabilities);
@@ -404,7 +406,8 @@ namespace en
                 VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME,
                 VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME,
                 VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
-                VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME };
+                VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,
+                VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME };
 
         float priorities[] = { 1.0f, 1.0f };
         VkDeviceQueueCreateInfo queueCreateInfo;
@@ -418,10 +421,18 @@ namespace en
         // Features
         VkPhysicalDeviceFeatures features{};
 
+        // Vulkan memory model features
+        VkPhysicalDeviceVulkanMemoryModelFeatures memoryModelFeatures;
+        memoryModelFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES;
+        memoryModelFeatures.pNext = nullptr;
+        memoryModelFeatures.vulkanMemoryModel = VK_TRUE;
+        memoryModelFeatures.vulkanMemoryModelDeviceScope = VK_TRUE;
+        memoryModelFeatures.vulkanMemoryModelAvailabilityVisibilityChains = VK_FALSE;
+
         // Nv cooperative matrix features
         VkPhysicalDeviceCooperativeMatrixFeaturesNV coopMatFeatures;
         coopMatFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_NV;
-        coopMatFeatures.pNext = nullptr;
+        coopMatFeatures.pNext = &memoryModelFeatures;
         coopMatFeatures.cooperativeMatrix = VK_TRUE;
         coopMatFeatures.cooperativeMatrixRobustBufferAccess = VK_FALSE;
 

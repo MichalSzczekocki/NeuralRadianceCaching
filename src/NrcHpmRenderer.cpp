@@ -17,16 +17,56 @@ namespace en
         outputImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         outputImageBinding.pImmutableSamplers = nullptr;
 
-        VkDescriptorSetLayoutBinding primaryRayImageBinding;
-        primaryRayImageBinding.binding = 1;
-        primaryRayImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        primaryRayImageBinding.descriptorCount = 1;
-        primaryRayImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        primaryRayImageBinding.pImmutableSamplers = nullptr;
+        VkDescriptorSetLayoutBinding primaryRayColorImageBinding;
+        primaryRayColorImageBinding.binding = 1;
+        primaryRayColorImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        primaryRayColorImageBinding.descriptorCount = 1;
+        primaryRayColorImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        primaryRayColorImageBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding primaryRayInfoImageBinding;
+        primaryRayInfoImageBinding.binding = 2;
+        primaryRayInfoImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        primaryRayInfoImageBinding.descriptorCount = 1;
+        primaryRayInfoImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        primaryRayInfoImageBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding neuralRayOriginImageBinding;
+        neuralRayOriginImageBinding.binding = 3;
+        neuralRayOriginImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        neuralRayOriginImageBinding.descriptorCount = 1;
+        neuralRayOriginImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        neuralRayOriginImageBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding neuralRayDirImageBinding;
+        neuralRayDirImageBinding.binding = 4;
+        neuralRayDirImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        neuralRayDirImageBinding.descriptorCount = 1;
+        neuralRayDirImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        neuralRayDirImageBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding neuralRayColorImageBinding;
+        neuralRayColorImageBinding.binding = 5;
+        neuralRayColorImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        neuralRayColorImageBinding.descriptorCount = 1;
+        neuralRayColorImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        neuralRayColorImageBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding neuralRayTargetImageBinding;
+        neuralRayTargetImageBinding.binding = 6;
+        neuralRayTargetImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        neuralRayTargetImageBinding.descriptorCount = 1;
+        neuralRayTargetImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        neuralRayTargetImageBinding.pImmutableSamplers = nullptr;
 
         std::vector<VkDescriptorSetLayoutBinding> bindings = {
                 outputImageBinding,
-                primaryRayImageBinding };
+                primaryRayColorImageBinding,
+                primaryRayInfoImageBinding,
+                neuralRayOriginImageBinding,
+                neuralRayDirImageBinding,
+                neuralRayColorImageBinding,
+                neuralRayTargetImageBinding };
 
         VkDescriptorSetLayoutCreateInfo layoutCI;
         layoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -41,7 +81,7 @@ namespace en
         // Create desc pool
         VkDescriptorPoolSize storageImagePoolSize;
         storageImagePoolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        storageImagePoolSize.descriptorCount = 2;
+        storageImagePoolSize.descriptorCount = 7;
 
         std::vector<VkDescriptorPoolSize> poolSizes = { storageImagePoolSize };
 
@@ -73,15 +113,19 @@ namespace en
             const DirLight& dirLight,
             const PointLight& pointLight,
             const HdrEnvMap& hdrEnvMap,
-            const NeuralRadianceCache& nrc)
+            NeuralRadianceCache& nrc)
             :
             m_FrameWidth(width),
             m_FrameHeight(height),
             m_TrainWidth(trainWidth),
             m_TrainHeight(trainHeight),
             m_GenRaysShader("nrc/gen_rays.comp", false),
+            m_FilterRaysShader("nrc/filter_rays.comp", false),
+            m_ForwardShader("nrc/forward.comp", false),
+            m_BackpropShader("nrc/backprop.comp", false),
+            m_GradientStepShader("nrc/gradient_step.comp", false),
             m_RenderShader("nrc/render.comp", false),
-            m_CommandPool(0, VulkanAPI::GetGraphicsQFI()),
+            m_CommandPool(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, VulkanAPI::GetGraphicsQFI()),
             m_Camera(camera),
             m_VolumeData(volumeData),
             m_DirLight(dirLight),
@@ -89,6 +133,14 @@ namespace en
             m_HdrEnvMap(hdrEnvMap),
             m_Nrc(nrc)
     {
+        if (m_FrameWidth * m_FrameHeight % m_Nrc.GetBatchSize() != 0 ||
+            m_TrainWidth * m_TrainHeight % m_Nrc.GetBatchSize() != 0)
+        {
+            Log::Error("Pixel count of rendering or training is not a multiple of the batch size", true);
+        }
+
+        m_Nrc.Init(static_cast<size_t>(m_FrameWidth * m_FrameHeight), static_cast<size_t>(m_TrainWidth * m_TrainHeight));
+
         VkDevice device = VulkanAPI::GetDevice();
 
         m_CommandPool.AllocateBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -99,10 +151,19 @@ namespace en
         InitSpecializationConstants();
 
         CreateGenRaysPipeline(device);
+        CreateFilterRaysPipeline(device);
+        CreateForwardPipeline(device);
+        CreateBackpropPipeline(device);
+        CreateGradientStepPipeline(device);
         CreateRenderPipeline(device);
 
         CreateOutputImage(device);
-        CreatePrimaryRayImage(device);
+        CreatePrimaryRayColorImage(device);
+        CreatePrimaryRayInfoImage(device);
+        CreateNeuralRayOriginImage(device);
+        CreateNeuralRayDirImage(device);
+        CreateNeuralRayColorImage(device);
+        CreateNeuralRayTargetImage(device);
 
         AllocateAndUpdateDescriptorSet(device);
 
@@ -132,9 +193,29 @@ namespace en
 
         m_CommandPool.Destroy();
 
-        vkDestroyImageView(device, m_PrimaryRayImageView, nullptr);
-        vkFreeMemory(device, m_PrimaryRayImageMemory, nullptr);
-        vkDestroyImage(device, m_PrimaryRayImage, nullptr);
+        vkDestroyImageView(device, m_NeuralRayTargetImageView, nullptr);
+        vkFreeMemory(device, m_NeuralRayTargetImageMemory, nullptr);
+        vkDestroyImage(device, m_NeuralRayTargetImage, nullptr);
+
+        vkDestroyImageView(device, m_NeuralRayColorImageView, nullptr);
+        vkFreeMemory(device, m_NeuralRayColorImageMemory, nullptr);
+        vkDestroyImage(device, m_NeuralRayColorImage, nullptr);
+
+        vkDestroyImageView(device, m_NeuralRayDirImageView, nullptr);
+        vkFreeMemory(device, m_NeuralRayDirImageMemory, nullptr);
+        vkDestroyImage(device, m_NeuralRayDirImage, nullptr);
+
+        vkDestroyImageView(device, m_NeuralRayOriginImageView, nullptr);
+        vkFreeMemory(device, m_NeuralRayOriginImageMemory, nullptr);
+        vkDestroyImage(device, m_NeuralRayOriginImage, nullptr);
+
+        vkDestroyImageView(device, m_PrimaryRayInfoImageView, nullptr);
+        vkFreeMemory(device, m_PrimaryRayInfoImageMemory, nullptr);
+        vkDestroyImage(device, m_PrimaryRayInfoImage, nullptr);
+
+        vkDestroyImageView(device, m_PrimaryRayColorImageView, nullptr);
+        vkFreeMemory(device, m_PrimaryRayColorImageMemory, nullptr);
+        vkDestroyImage(device, m_PrimaryRayColorImage, nullptr);
 
         vkDestroyImageView(device, m_OutputImageView, nullptr);
         vkFreeMemory(device, m_OutputImageMemory, nullptr);
@@ -143,36 +224,23 @@ namespace en
         vkDestroyPipeline(device, m_RenderPipeline, nullptr);
         m_RenderShader.Destroy();
 
+        vkDestroyPipeline(device, m_GradientStepPipeline, nullptr);
+        m_GradientStepShader.Destroy();
+
+        vkDestroyPipeline(device, m_BackpropPipeline, nullptr);
+        m_BackpropShader.Destroy();
+
+        vkDestroyPipeline(device, m_ForwardPipeline, nullptr);
+        m_ForwardShader.Destroy();
+
+        vkDestroyPipeline(device, m_FilterRaysPipeline, nullptr);
+        m_FilterRaysShader.Destroy();
+
         vkDestroyPipeline(device, m_GenRaysPipeline, nullptr);
         m_GenRaysShader.Destroy();
 
         vkDestroyPipelineLayout(device, m_PipelineLayout, nullptr);
     }
-
-//	void NrcHpmRenderer::ResizeFrame(uint32_t width, uint32_t height)
-//	{
-//		m_FrameWidth = width;
-//		m_FrameHeight = height;
-//
-//		VkDevice device = VulkanAPI::GetDevice();
-//
-//		// Destroy
-//		m_CommandPool.FreeBuffers();
-//		vkDestroyFramebuffer(device, m_Framebuffer, nullptr);
-//
-//		vkDestroyImageView(device, m_ColorImageView, nullptr);
-//		vkFreeMemory(device, m_ColorImageMemory, nullptr);
-//		vkDestroyImage(device, m_ColorImage, nullptr);
-//
-//		// Create
-//		CreateColorImage(device);
-//		CreateFramebuffer(device);
-//
-//		m_CommandPool.AllocateBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-//		m_CommandBuffer = m_CommandPool.GetBuffer(0);
-//
-//		RecordCommandBuffer();
-//	}
 
     VkImage NrcHpmRenderer::GetImage() const
     {
@@ -235,6 +303,7 @@ namespace en
         m_SpecData.inputFeatureCount = m_Nrc.GetDirFeatureCount();
         m_SpecData.nrcLearningRate = m_Nrc.GetNrcLearningRate();
         m_SpecData.mrheLearningRate = m_Nrc.GetMrheLearningRate();
+        m_SpecData.batchSize = m_Nrc.GetBatchSize();
 
         // Init map entries
         // Render size
@@ -338,6 +407,11 @@ namespace en
         mrheLearningRateEntry.offset = offsetof(SpecializationData, SpecializationData::mrheLearningRate);
         mrheLearningRateEntry.size = sizeof(float);
 
+        VkSpecializationMapEntry batchSizeEntry;
+        batchSizeEntry.constantID = 19;
+        batchSizeEntry.offset = offsetof(SpecializationData, SpecializationData::batchSize);
+        batchSizeEntry.size = sizeof(uint32_t);
+
         m_SpecMapEntries = {
                 renderWidthEntry,
                 renderHeightEntry,
@@ -362,7 +436,8 @@ namespace en
                 layerWidthEntry,
                 inputFeatureCountEntry,
                 nrcLearningRateEntry,
-                mrheLearningRateEntry };
+                mrheLearningRateEntry,
+                batchSizeEntry };
 
         m_SpecInfo.mapEntryCount = m_SpecMapEntries.size();
         m_SpecInfo.pMapEntries = m_SpecMapEntries.data();
@@ -391,6 +466,102 @@ namespace en
         pipelineCI.basePipelineIndex = 0;
 
         VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_GenRaysPipeline);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreateFilterRaysPipeline(VkDevice device)
+    {
+        VkPipelineShaderStageCreateInfo shaderStage;
+        shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shaderStage.pNext = nullptr;
+        shaderStage.flags = 0;
+        shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        shaderStage.module = m_FilterRaysShader.GetVulkanModule();
+        shaderStage.pName = "main";
+        shaderStage.pSpecializationInfo = &m_SpecInfo;
+
+        VkComputePipelineCreateInfo pipelineCI;
+        pipelineCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCI.pNext = nullptr;
+        pipelineCI.flags = 0;
+        pipelineCI.stage = shaderStage;
+        pipelineCI.layout = m_PipelineLayout;
+        pipelineCI.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineCI.basePipelineIndex = 0;
+
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_FilterRaysPipeline);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreateForwardPipeline(VkDevice device)
+    {
+        VkPipelineShaderStageCreateInfo shaderStage;
+        shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shaderStage.pNext = nullptr;
+        shaderStage.flags = 0;
+        shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        shaderStage.module = m_ForwardShader.GetVulkanModule();
+        shaderStage.pName = "main";
+        shaderStage.pSpecializationInfo = &m_SpecInfo;
+
+        VkComputePipelineCreateInfo pipelineCI;
+        pipelineCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCI.pNext = nullptr;
+        pipelineCI.flags = VK_PIPELINE_CREATE_DISPATCH_BASE_BIT;
+        pipelineCI.stage = shaderStage;
+        pipelineCI.layout = m_PipelineLayout;
+        pipelineCI.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineCI.basePipelineIndex = 0;
+
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_ForwardPipeline);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreateBackpropPipeline(VkDevice device)
+    {
+        VkPipelineShaderStageCreateInfo shaderStage;
+        shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shaderStage.pNext = nullptr;
+        shaderStage.flags = 0;
+        shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        shaderStage.module = m_BackpropShader.GetVulkanModule();
+        shaderStage.pName = "main";
+        shaderStage.pSpecializationInfo = &m_SpecInfo;
+
+        VkComputePipelineCreateInfo pipelineCI;
+        pipelineCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCI.pNext = nullptr;
+        pipelineCI.flags = VK_PIPELINE_CREATE_DISPATCH_BASE_BIT;
+        pipelineCI.stage = shaderStage;
+        pipelineCI.layout = m_PipelineLayout;
+        pipelineCI.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineCI.basePipelineIndex = 0;
+
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_BackpropPipeline);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreateGradientStepPipeline(VkDevice device)
+    {
+        VkPipelineShaderStageCreateInfo shaderStage;
+        shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shaderStage.pNext = nullptr;
+        shaderStage.flags = 0;
+        shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        shaderStage.module = m_GradientStepShader.GetVulkanModule();
+        shaderStage.pName = "main";
+        shaderStage.pSpecializationInfo = &m_SpecInfo;
+
+        VkComputePipelineCreateInfo pipelineCI;
+        pipelineCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCI.pNext = nullptr;
+        pipelineCI.flags = 0;
+        pipelineCI.stage = shaderStage;
+        pipelineCI.layout = m_PipelineLayout;
+        pipelineCI.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineCI.basePipelineIndex = 0;
+
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_GradientStepPipeline);
         ASSERT_VULKAN(result);
     }
 
@@ -443,46 +614,6 @@ namespace en
         VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_OutputImage);
         ASSERT_VULKAN(result);
 
-        // Change image layout
-        VkCommandBufferBeginInfo beginInfo;
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.pNext = nullptr;
-        beginInfo.flags = 0;
-        beginInfo.pInheritanceInfo = nullptr;
-
-        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
-        ASSERT_VULKAN(result);
-
-        vk::CommandRecorder::ImageLayoutTransfer(
-                m_CommandBuffer,
-                m_OutputImage,
-                VK_IMAGE_LAYOUT_PREINITIALIZED,
-                VK_IMAGE_LAYOUT_GENERAL,
-                VK_ACCESS_NONE,
-                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
-                VK_PIPELINE_STAGE_NONE,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-
-        result = vkEndCommandBuffer(m_CommandBuffer);
-        ASSERT_VULKAN(result);
-
-        VkSubmitInfo submitInfo;
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.pNext = nullptr;
-        submitInfo.waitSemaphoreCount = 0;
-        submitInfo.pWaitSemaphores = nullptr;
-        submitInfo.pWaitDstStageMask = nullptr;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_CommandBuffer;
-        submitInfo.signalSemaphoreCount = 0;
-        submitInfo.pSignalSemaphores = nullptr;
-
-        VkQueue queue = VulkanAPI::GetGraphicsQueue();
-        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-        ASSERT_VULKAN(result);
-        result = vkQueueWaitIdle(queue);
-        ASSERT_VULKAN(result);
-
         // Image Memory
         VkMemoryRequirements memoryRequirements;
         vkGetImageMemoryRequirements(device, m_OutputImage, &memoryRequirements);
@@ -521,32 +652,6 @@ namespace en
 
         result = vkCreateImageView(device, &imageViewCI, nullptr, &m_OutputImageView);
         ASSERT_VULKAN(result);
-    }
-
-    void NrcHpmRenderer::CreatePrimaryRayImage(VkDevice device)
-    {
-        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
-
-        // Create Image
-        VkImageCreateInfo imageCI;
-        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        imageCI.pNext = nullptr;
-        imageCI.flags = 0;
-        imageCI.imageType = VK_IMAGE_TYPE_2D;
-        imageCI.format = format;
-        imageCI.extent = { m_FrameWidth, m_FrameHeight, 1 };
-        imageCI.mipLevels = 1;
-        imageCI.arrayLayers = 1;
-        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
-        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
-        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        imageCI.queueFamilyIndexCount = 0;
-        imageCI.pQueueFamilyIndices = nullptr;
-        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
-
-        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_PrimaryRayImage);
-        ASSERT_VULKAN(result);
 
         // Change image layout
         VkCommandBufferBeginInfo beginInfo;
@@ -560,12 +665,12 @@ namespace en
 
         vk::CommandRecorder::ImageLayoutTransfer(
                 m_CommandBuffer,
-                m_PrimaryRayImage,
+                m_OutputImage,
                 VK_IMAGE_LAYOUT_PREINITIALIZED,
                 VK_IMAGE_LAYOUT_GENERAL,
                 VK_ACCESS_NONE,
                 VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
-                VK_PIPELINE_STAGE_NONE,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
         result = vkEndCommandBuffer(m_CommandBuffer);
@@ -587,10 +692,36 @@ namespace en
         ASSERT_VULKAN(result);
         result = vkQueueWaitIdle(queue);
         ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreatePrimaryRayColorImage(VkDevice device)
+    {
+        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // Create Image
+        VkImageCreateInfo imageCI;
+        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCI.pNext = nullptr;
+        imageCI.flags = 0;
+        imageCI.imageType = VK_IMAGE_TYPE_2D;
+        imageCI.format = format;
+        imageCI.extent = { m_FrameWidth, m_FrameHeight, 1 };
+        imageCI.mipLevels = 1;
+        imageCI.arrayLayers = 1;
+        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageCI.queueFamilyIndexCount = 0;
+        imageCI.pQueueFamilyIndices = nullptr;
+        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_PrimaryRayColorImage);
+        ASSERT_VULKAN(result);
 
         // Image Memory
         VkMemoryRequirements memoryRequirements;
-        vkGetImageMemoryRequirements(device, m_PrimaryRayImage, &memoryRequirements);
+        vkGetImageMemoryRequirements(device, m_PrimaryRayColorImage, &memoryRequirements);
 
         VkMemoryAllocateInfo allocateInfo;
         allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -600,10 +731,10 @@ namespace en
                 memoryRequirements.memoryTypeBits,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_PrimaryRayImageMemory);
+        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_PrimaryRayColorImageMemory);
         ASSERT_VULKAN(result);
 
-        result = vkBindImageMemory(device, m_PrimaryRayImage, m_PrimaryRayImageMemory, 0);
+        result = vkBindImageMemory(device, m_PrimaryRayColorImage, m_PrimaryRayColorImageMemory, 0);
         ASSERT_VULKAN(result);
 
         // Create image view
@@ -611,7 +742,7 @@ namespace en
         imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         imageViewCI.pNext = nullptr;
         imageViewCI.flags = 0;
-        imageViewCI.image = m_PrimaryRayImage;
+        imageViewCI.image = m_PrimaryRayColorImage;
         imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
         imageViewCI.format = format;
         imageViewCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -624,7 +755,572 @@ namespace en
         imageViewCI.subresourceRange.baseArrayLayer = 0;
         imageViewCI.subresourceRange.layerCount = 1;
 
-        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_PrimaryRayImageView);
+        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_PrimaryRayColorImageView);
+        ASSERT_VULKAN(result);
+
+        // Change image layout
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        ASSERT_VULKAN(result);
+
+        vk::CommandRecorder::ImageLayoutTransfer(
+                m_CommandBuffer,
+                m_PrimaryRayColorImage,
+                VK_IMAGE_LAYOUT_PREINITIALIZED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_ACCESS_NONE,
+                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        result = vkEndCommandBuffer(m_CommandBuffer);
+        ASSERT_VULKAN(result);
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        VkQueue queue = VulkanAPI::GetGraphicsQueue();
+        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        ASSERT_VULKAN(result);
+        result = vkQueueWaitIdle(queue);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreatePrimaryRayInfoImage(VkDevice device)
+    {
+        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // Create Image
+        VkImageCreateInfo imageCI;
+        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCI.pNext = nullptr;
+        imageCI.flags = 0;
+        imageCI.imageType = VK_IMAGE_TYPE_2D;
+        imageCI.format = format;
+        imageCI.extent = { m_FrameWidth, m_FrameHeight, 1 };
+        imageCI.mipLevels = 1;
+        imageCI.arrayLayers = 1;
+        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageCI.queueFamilyIndexCount = 0;
+        imageCI.pQueueFamilyIndices = nullptr;
+        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_PrimaryRayInfoImage);
+        ASSERT_VULKAN(result);
+
+        // Image Memory
+        VkMemoryRequirements memoryRequirements;
+        vkGetImageMemoryRequirements(device, m_PrimaryRayInfoImage, &memoryRequirements);
+
+        VkMemoryAllocateInfo allocateInfo;
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.pNext = nullptr;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = VulkanAPI::FindMemoryType(
+                memoryRequirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_PrimaryRayInfoImageMemory);
+        ASSERT_VULKAN(result);
+
+        result = vkBindImageMemory(device, m_PrimaryRayInfoImage, m_PrimaryRayInfoImageMemory, 0);
+        ASSERT_VULKAN(result);
+
+        // Create image view
+        VkImageViewCreateInfo imageViewCI;
+        imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCI.pNext = nullptr;
+        imageViewCI.flags = 0;
+        imageViewCI.image = m_PrimaryRayInfoImage;
+        imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCI.format = format;
+        imageViewCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewCI.subresourceRange.baseMipLevel = 0;
+        imageViewCI.subresourceRange.levelCount = 1;
+        imageViewCI.subresourceRange.baseArrayLayer = 0;
+        imageViewCI.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_PrimaryRayInfoImageView);
+        ASSERT_VULKAN(result);
+
+        // Change image layout
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        ASSERT_VULKAN(result);
+
+        vk::CommandRecorder::ImageLayoutTransfer(
+                m_CommandBuffer,
+                m_PrimaryRayInfoImage,
+                VK_IMAGE_LAYOUT_PREINITIALIZED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_ACCESS_NONE,
+                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        result = vkEndCommandBuffer(m_CommandBuffer);
+        ASSERT_VULKAN(result);
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        VkQueue queue = VulkanAPI::GetGraphicsQueue();
+        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        ASSERT_VULKAN(result);
+        result = vkQueueWaitIdle(queue);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreateNeuralRayOriginImage(VkDevice device)
+    {
+        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // Create Image
+        VkImageCreateInfo imageCI;
+        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCI.pNext = nullptr;
+        imageCI.flags = 0;
+        imageCI.imageType = VK_IMAGE_TYPE_2D;
+        imageCI.format = format;
+        imageCI.extent = { m_FrameWidth, m_FrameHeight, 1 };
+        imageCI.mipLevels = 1;
+        imageCI.arrayLayers = 1;
+        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageCI.queueFamilyIndexCount = 0;
+        imageCI.pQueueFamilyIndices = nullptr;
+        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_NeuralRayOriginImage);
+        ASSERT_VULKAN(result);
+
+        // Image Memory
+        VkMemoryRequirements memoryRequirements;
+        vkGetImageMemoryRequirements(device, m_NeuralRayOriginImage, &memoryRequirements);
+
+        VkMemoryAllocateInfo allocateInfo;
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.pNext = nullptr;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = VulkanAPI::FindMemoryType(
+                memoryRequirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_NeuralRayOriginImageMemory);
+        ASSERT_VULKAN(result);
+
+        result = vkBindImageMemory(device, m_NeuralRayOriginImage, m_NeuralRayOriginImageMemory, 0);
+        ASSERT_VULKAN(result);
+
+        // Create image view
+        VkImageViewCreateInfo imageViewCI;
+        imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCI.pNext = nullptr;
+        imageViewCI.flags = 0;
+        imageViewCI.image = m_NeuralRayOriginImage;
+        imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCI.format = format;
+        imageViewCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewCI.subresourceRange.baseMipLevel = 0;
+        imageViewCI.subresourceRange.levelCount = 1;
+        imageViewCI.subresourceRange.baseArrayLayer = 0;
+        imageViewCI.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_NeuralRayOriginImageView);
+        ASSERT_VULKAN(result);
+
+        // Change image layout
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        ASSERT_VULKAN(result);
+
+        vk::CommandRecorder::ImageLayoutTransfer(
+                m_CommandBuffer,
+                m_NeuralRayOriginImage,
+                VK_IMAGE_LAYOUT_PREINITIALIZED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_ACCESS_NONE,
+                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        result = vkEndCommandBuffer(m_CommandBuffer);
+        ASSERT_VULKAN(result);
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        VkQueue queue = VulkanAPI::GetGraphicsQueue();
+        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        ASSERT_VULKAN(result);
+        result = vkQueueWaitIdle(queue);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreateNeuralRayDirImage(VkDevice device)
+    {
+        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // Create Image
+        VkImageCreateInfo imageCI;
+        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCI.pNext = nullptr;
+        imageCI.flags = 0;
+        imageCI.imageType = VK_IMAGE_TYPE_2D;
+        imageCI.format = format;
+        imageCI.extent = { m_FrameWidth, m_FrameHeight, 1 };
+        imageCI.mipLevels = 1;
+        imageCI.arrayLayers = 1;
+        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageCI.queueFamilyIndexCount = 0;
+        imageCI.pQueueFamilyIndices = nullptr;
+        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_NeuralRayDirImage);
+        ASSERT_VULKAN(result);
+
+        // Image Memory
+        VkMemoryRequirements memoryRequirements;
+        vkGetImageMemoryRequirements(device, m_NeuralRayDirImage, &memoryRequirements);
+
+        VkMemoryAllocateInfo allocateInfo;
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.pNext = nullptr;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = VulkanAPI::FindMemoryType(
+                memoryRequirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_NeuralRayDirImageMemory);
+        ASSERT_VULKAN(result);
+
+        result = vkBindImageMemory(device, m_NeuralRayDirImage, m_NeuralRayDirImageMemory, 0);
+        ASSERT_VULKAN(result);
+
+        // Create image view
+        VkImageViewCreateInfo imageViewCI;
+        imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCI.pNext = nullptr;
+        imageViewCI.flags = 0;
+        imageViewCI.image = m_NeuralRayDirImage;
+        imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCI.format = format;
+        imageViewCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewCI.subresourceRange.baseMipLevel = 0;
+        imageViewCI.subresourceRange.levelCount = 1;
+        imageViewCI.subresourceRange.baseArrayLayer = 0;
+        imageViewCI.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_NeuralRayDirImageView);
+        ASSERT_VULKAN(result);
+
+        // Change image layout
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        ASSERT_VULKAN(result);
+
+        vk::CommandRecorder::ImageLayoutTransfer(
+                m_CommandBuffer,
+                m_NeuralRayDirImage,
+                VK_IMAGE_LAYOUT_PREINITIALIZED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_ACCESS_NONE,
+                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        result = vkEndCommandBuffer(m_CommandBuffer);
+        ASSERT_VULKAN(result);
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        VkQueue queue = VulkanAPI::GetGraphicsQueue();
+        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        ASSERT_VULKAN(result);
+        result = vkQueueWaitIdle(queue);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreateNeuralRayColorImage(VkDevice device)
+    {
+        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // Create Image
+        VkImageCreateInfo imageCI;
+        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCI.pNext = nullptr;
+        imageCI.flags = 0;
+        imageCI.imageType = VK_IMAGE_TYPE_2D;
+        imageCI.format = format;
+        imageCI.extent = { m_FrameWidth, m_FrameHeight, 1 };
+        imageCI.mipLevels = 1;
+        imageCI.arrayLayers = 1;
+        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageCI.queueFamilyIndexCount = 0;
+        imageCI.pQueueFamilyIndices = nullptr;
+        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_NeuralRayColorImage);
+        ASSERT_VULKAN(result);
+
+        // Image Memory
+        VkMemoryRequirements memoryRequirements;
+        vkGetImageMemoryRequirements(device, m_NeuralRayColorImage, &memoryRequirements);
+
+        VkMemoryAllocateInfo allocateInfo;
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.pNext = nullptr;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = VulkanAPI::FindMemoryType(
+                memoryRequirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_NeuralRayColorImageMemory);
+        ASSERT_VULKAN(result);
+
+        result = vkBindImageMemory(device, m_NeuralRayColorImage, m_NeuralRayColorImageMemory, 0);
+        ASSERT_VULKAN(result);
+
+        // Create image view
+        VkImageViewCreateInfo imageViewCI;
+        imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCI.pNext = nullptr;
+        imageViewCI.flags = 0;
+        imageViewCI.image = m_NeuralRayColorImage;
+        imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCI.format = format;
+        imageViewCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewCI.subresourceRange.baseMipLevel = 0;
+        imageViewCI.subresourceRange.levelCount = 1;
+        imageViewCI.subresourceRange.baseArrayLayer = 0;
+        imageViewCI.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_NeuralRayColorImageView);
+        ASSERT_VULKAN(result);
+
+        // Change image layout
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        ASSERT_VULKAN(result);
+
+        vk::CommandRecorder::ImageLayoutTransfer(
+                m_CommandBuffer,
+                m_NeuralRayColorImage,
+                VK_IMAGE_LAYOUT_PREINITIALIZED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_ACCESS_NONE,
+                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        result = vkEndCommandBuffer(m_CommandBuffer);
+        ASSERT_VULKAN(result);
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        VkQueue queue = VulkanAPI::GetGraphicsQueue();
+        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        ASSERT_VULKAN(result);
+        result = vkQueueWaitIdle(queue);
+        ASSERT_VULKAN(result);
+    }
+
+    void NrcHpmRenderer::CreateNeuralRayTargetImage(VkDevice device)
+    {
+        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // Create Image
+        VkImageCreateInfo imageCI;
+        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCI.pNext = nullptr;
+        imageCI.flags = 0;
+        imageCI.imageType = VK_IMAGE_TYPE_2D;
+        imageCI.format = format;
+        imageCI.extent = { m_TrainWidth, m_TrainHeight, 1 };
+        imageCI.mipLevels = 1;
+        imageCI.arrayLayers = 1;
+        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageCI.queueFamilyIndexCount = 0;
+        imageCI.pQueueFamilyIndices = nullptr;
+        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_NeuralRayTargetImage);
+        ASSERT_VULKAN(result);
+
+        // Image Memory
+        VkMemoryRequirements memoryRequirements;
+        vkGetImageMemoryRequirements(device, m_NeuralRayTargetImage, &memoryRequirements);
+
+        VkMemoryAllocateInfo allocateInfo;
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.pNext = nullptr;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = VulkanAPI::FindMemoryType(
+                memoryRequirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_NeuralRayTargetImageMemory);
+        ASSERT_VULKAN(result);
+
+        result = vkBindImageMemory(device, m_NeuralRayTargetImage, m_NeuralRayTargetImageMemory, 0);
+        ASSERT_VULKAN(result);
+
+        // Create image view
+        VkImageViewCreateInfo imageViewCI;
+        imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCI.pNext = nullptr;
+        imageViewCI.flags = 0;
+        imageViewCI.image = m_NeuralRayTargetImage;
+        imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCI.format = format;
+        imageViewCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewCI.subresourceRange.baseMipLevel = 0;
+        imageViewCI.subresourceRange.levelCount = 1;
+        imageViewCI.subresourceRange.baseArrayLayer = 0;
+        imageViewCI.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_NeuralRayTargetImageView);
+        ASSERT_VULKAN(result);
+
+        // Change image layout
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        ASSERT_VULKAN(result);
+
+        vk::CommandRecorder::ImageLayoutTransfer(
+                m_CommandBuffer,
+                m_NeuralRayTargetImage,
+                VK_IMAGE_LAYOUT_PREINITIALIZED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_ACCESS_NONE,
+                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        result = vkEndCommandBuffer(m_CommandBuffer);
+        ASSERT_VULKAN(result);
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        VkQueue queue = VulkanAPI::GetGraphicsQueue();
+        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        ASSERT_VULKAN(result);
+        result = vkQueueWaitIdle(queue);
         ASSERT_VULKAN(result);
     }
 
@@ -659,26 +1355,116 @@ namespace en
         outputImageWrite.pBufferInfo = nullptr;
         outputImageWrite.pTexelBufferView = nullptr;
 
-        VkDescriptorImageInfo primaryRayImageInfo;
-        primaryRayImageInfo.sampler = VK_NULL_HANDLE;
-        primaryRayImageInfo.imageView = m_PrimaryRayImageView;
-        primaryRayImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        VkDescriptorImageInfo primaryRayColorImageInfo;
+        primaryRayColorImageInfo.sampler = VK_NULL_HANDLE;
+        primaryRayColorImageInfo.imageView = m_PrimaryRayColorImageView;
+        primaryRayColorImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        VkWriteDescriptorSet primaryRayImageWrite;
-        primaryRayImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        primaryRayImageWrite.pNext = nullptr;
-        primaryRayImageWrite.dstSet = m_DescSet;
-        primaryRayImageWrite.dstBinding = 1;
-        primaryRayImageWrite.dstArrayElement = 0;
-        primaryRayImageWrite.descriptorCount = 1;
-        primaryRayImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        primaryRayImageWrite.pImageInfo = &primaryRayImageInfo;
-        primaryRayImageWrite.pBufferInfo = nullptr;
-        primaryRayImageWrite.pTexelBufferView = nullptr;
+        VkWriteDescriptorSet primaryRayColorImageWrite;
+        primaryRayColorImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        primaryRayColorImageWrite.pNext = nullptr;
+        primaryRayColorImageWrite.dstSet = m_DescSet;
+        primaryRayColorImageWrite.dstBinding = 1;
+        primaryRayColorImageWrite.dstArrayElement = 0;
+        primaryRayColorImageWrite.descriptorCount = 1;
+        primaryRayColorImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        primaryRayColorImageWrite.pImageInfo = &primaryRayColorImageInfo;
+        primaryRayColorImageWrite.pBufferInfo = nullptr;
+        primaryRayColorImageWrite.pTexelBufferView = nullptr;
+
+        VkDescriptorImageInfo primaryRayInfoImageInfo;
+        primaryRayInfoImageInfo.sampler = VK_NULL_HANDLE;
+        primaryRayInfoImageInfo.imageView = m_PrimaryRayInfoImageView;
+        primaryRayInfoImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet primaryRayInfoImageWrite;
+        primaryRayInfoImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        primaryRayInfoImageWrite.pNext = nullptr;
+        primaryRayInfoImageWrite.dstSet = m_DescSet;
+        primaryRayInfoImageWrite.dstBinding = 2;
+        primaryRayInfoImageWrite.dstArrayElement = 0;
+        primaryRayInfoImageWrite.descriptorCount = 1;
+        primaryRayInfoImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        primaryRayInfoImageWrite.pImageInfo = &primaryRayInfoImageInfo;
+        primaryRayInfoImageWrite.pBufferInfo = nullptr;
+        primaryRayInfoImageWrite.pTexelBufferView = nullptr;
+
+        VkDescriptorImageInfo neuralRayOriginImageInfo;
+        neuralRayOriginImageInfo.sampler = VK_NULL_HANDLE;
+        neuralRayOriginImageInfo.imageView = m_NeuralRayOriginImageView;
+        neuralRayOriginImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet neuralRayOriginImageWrite;
+        neuralRayOriginImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        neuralRayOriginImageWrite.pNext = nullptr;
+        neuralRayOriginImageWrite.dstSet = m_DescSet;
+        neuralRayOriginImageWrite.dstBinding = 3;
+        neuralRayOriginImageWrite.dstArrayElement = 0;
+        neuralRayOriginImageWrite.descriptorCount = 1;
+        neuralRayOriginImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        neuralRayOriginImageWrite.pImageInfo = &neuralRayOriginImageInfo;
+        neuralRayOriginImageWrite.pBufferInfo = nullptr;
+        neuralRayOriginImageWrite.pTexelBufferView = nullptr;
+
+        VkDescriptorImageInfo neuralRayDirImageInfo;
+        neuralRayDirImageInfo.sampler = VK_NULL_HANDLE;
+        neuralRayDirImageInfo.imageView = m_NeuralRayDirImageView;
+        neuralRayDirImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet neuralRayDirImageWrite;
+        neuralRayDirImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        neuralRayDirImageWrite.pNext = nullptr;
+        neuralRayDirImageWrite.dstSet = m_DescSet;
+        neuralRayDirImageWrite.dstBinding = 4;
+        neuralRayDirImageWrite.dstArrayElement = 0;
+        neuralRayDirImageWrite.descriptorCount = 1;
+        neuralRayDirImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        neuralRayDirImageWrite.pImageInfo = &neuralRayDirImageInfo;
+        neuralRayDirImageWrite.pBufferInfo = nullptr;
+        neuralRayDirImageWrite.pTexelBufferView = nullptr;
+
+        VkDescriptorImageInfo neuralRayColorImageInfo;
+        neuralRayColorImageInfo.sampler = VK_NULL_HANDLE;
+        neuralRayColorImageInfo.imageView = m_NeuralRayColorImageView;
+        neuralRayColorImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet neuralRayColorImageWrite;
+        neuralRayColorImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        neuralRayColorImageWrite.pNext = nullptr;
+        neuralRayColorImageWrite.dstSet = m_DescSet;
+        neuralRayColorImageWrite.dstBinding = 5;
+        neuralRayColorImageWrite.dstArrayElement = 0;
+        neuralRayColorImageWrite.descriptorCount = 1;
+        neuralRayColorImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        neuralRayColorImageWrite.pImageInfo = &neuralRayDirImageInfo;
+        neuralRayColorImageWrite.pBufferInfo = nullptr;
+        neuralRayColorImageWrite.pTexelBufferView = nullptr;
+
+        VkDescriptorImageInfo neuralRayTargetImageInfo;
+        neuralRayTargetImageInfo.sampler = VK_NULL_HANDLE;
+        neuralRayTargetImageInfo.imageView = m_NeuralRayTargetImageView;
+        neuralRayTargetImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet neuralRayTargetImageWrite;
+        neuralRayTargetImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        neuralRayTargetImageWrite.pNext = nullptr;
+        neuralRayTargetImageWrite.dstSet = m_DescSet;
+        neuralRayTargetImageWrite.dstBinding = 6;
+        neuralRayTargetImageWrite.dstArrayElement = 0;
+        neuralRayTargetImageWrite.descriptorCount = 1;
+        neuralRayTargetImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        neuralRayTargetImageWrite.pImageInfo = &neuralRayDirImageInfo;
+        neuralRayTargetImageWrite.pBufferInfo = nullptr;
+        neuralRayTargetImageWrite.pTexelBufferView = nullptr;
 
         std::vector<VkWriteDescriptorSet> writes = {
                 outputImageWrite,
-                primaryRayImageWrite };
+                primaryRayColorImageWrite,
+                primaryRayInfoImageWrite,
+                neuralRayOriginImageWrite,
+                neuralRayDirImageWrite,
+                neuralRayColorImageWrite,
+                neuralRayTargetImageWrite };
 
         vkUpdateDescriptorSets(device, writes.size(), writes.data(), 0, nullptr);
     }
@@ -706,6 +1492,13 @@ namespace en
                 m_HdrEnvMap.GetDescriptorSet(),
                 m_DescSet };
 
+        // Create memory barrier
+        VkMemoryBarrier memoryBarrier;
+        memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        memoryBarrier.pNext = nullptr;
+        memoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+        memoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+
         // Bind descriptor sets
         vkCmdBindDescriptorSets(
                 m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_PipelineLayout,
@@ -714,11 +1507,77 @@ namespace en
 
         // Gen rays pipeline
         vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_GenRaysPipeline);
-        vkCmdDispatch(m_CommandBuffer, m_FrameWidth, m_FrameHeight, 1);
+        vkCmdDispatch(m_CommandBuffer, m_FrameWidth / 32, m_FrameHeight, 1);
 
+        vkCmdPipelineBarrier(
+                m_CommandBuffer,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_DEPENDENCY_DEVICE_GROUP_BIT,
+                1, &memoryBarrier,
+                0, nullptr,
+                0, nullptr);
+
+        // Filter rays pipeline
+        vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_FilterRaysPipeline);
+        vkCmdDispatch(m_CommandBuffer, m_FrameWidth / 32, m_FrameHeight, 1); // Divided by 32 because of subgroup
+
+        vkCmdPipelineBarrier(
+                m_CommandBuffer,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_DEPENDENCY_DEVICE_GROUP_BIT,
+                1, &memoryBarrier,
+                0, nullptr,
+                0, nullptr);
+
+        // Forward pipeline
+        const uint32_t forwardBatchCount = (m_FrameWidth * m_FrameHeight) / m_Nrc.GetBatchSize();
+        vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ForwardPipeline);
+        vkCmdDispatch(m_CommandBuffer, forwardBatchCount, 1, 1);
+
+        vkCmdPipelineBarrier(
+                m_CommandBuffer,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_DEPENDENCY_DEVICE_GROUP_BIT,
+                1, &memoryBarrier,
+                0, nullptr,
+                0, nullptr);
+
+        // Backprop pipeline
+#define NRC_HPM_BACKPROP
+#ifdef NRC_HPM_BACKPROP
+        const uint32_t backpropBatchCount = (m_TrainWidth * m_TrainHeight) / m_Nrc.GetBatchSize();
+        vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_BackpropPipeline);
+        vkCmdDispatch(m_CommandBuffer, backpropBatchCount, 1, 1);
+
+        vkCmdPipelineBarrier(
+                m_CommandBuffer,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_DEPENDENCY_DEVICE_GROUP_BIT,
+                1, &memoryBarrier,
+                0, nullptr,
+                0, nullptr);
+
+        // Gradient step pipeline
+        vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_GradientStepPipeline);
+        const size_t gradientStepCount = std::max(m_Nrc.GetWeightsCount(), std::max(m_Nrc.GetBiasesCount(), m_Nrc.GetMrheCount()));
+        vkCmdDispatch(m_CommandBuffer, static_cast<uint32_t>(gradientStepCount) / 32, 1, 1);
+
+        vkCmdPipelineBarrier(
+                m_CommandBuffer,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_DEPENDENCY_DEVICE_GROUP_BIT,
+                1, &memoryBarrier,
+                0, nullptr,
+                0, nullptr);
+#endif
         // Render pipeline
         vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_RenderPipeline);
-        vkCmdDispatch(m_CommandBuffer, m_FrameWidth, m_FrameHeight, 1);
+        vkCmdDispatch(m_CommandBuffer, m_FrameWidth / 32, m_FrameHeight, 1);
 
         // End
         result = vkEndCommandBuffer(m_CommandBuffer);

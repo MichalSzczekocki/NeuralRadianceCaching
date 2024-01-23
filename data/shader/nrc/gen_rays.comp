@@ -1,8 +1,12 @@
 #version 460
 #include "common.glsl"
 
-#define TRUE_TRACE_SAMPLE_COUNT 32
-vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir)
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+ivec2 imageCoord;
+
+#define PATH_SAMPLE_COUNT 32
+vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
 {
     vec3 scatteredLight = vec3(0.0);
     float transmittance = 1.0;
@@ -17,12 +21,23 @@ vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir)
 
     float totalTermProb = 1.0;
 
-    for (uint i = 0; i < TRUE_TRACE_SAMPLE_COUNT; i++)
+    didScatter = false;
+    for (uint i = 0; i < PATH_SAMPLE_COUNT; i++)
     {
         const float density = getDensity(currentPoint);
 
         if (density > 0.0)
         {
+            didScatter = true;
+
+            if (RandFloat(1.0) > totalTermProb)
+            {
+                imageStore(nrcNeuralRayOriginImage, imageCoord, vec4(currentPoint, 0.0));
+                imageStore(nrcNeuralRayDirImage, imageCoord, vec4(currentDir, 0.0));
+                return vec4(scatteredLight, transmittance);
+            }
+            totalTermProb *= 0.5;
+
             // Get scene lighting
             const vec3 sceneLighting = TraceScene(currentPoint, currentDir);
 
@@ -58,6 +73,7 @@ void main()
 {
     const uint x = gl_GlobalInvocationID.x;
     const uint y = gl_GlobalInvocationID.y;
+    imageCoord = ivec2(x, y);
 
     // Fraguv and world pos
     const vec2 fragUV = vec2(float(x) * ONE_OVER_RENDER_WIDTH, float(y) * ONE_OVER_RENDER_HEIGHT);
@@ -73,17 +89,26 @@ void main()
     const vec3 ro = camera.pos;
     vec3 rd = normalize(pixelWorldPos - ro);
 
-    // SDF
+    // SDF + render
     const vec3[2] entry_exit = find_entry_exit(ro, rd);
     const vec3 entry = entry_exit[0];
     const vec3 exit = entry_exit[1];
 
+    vec4 primaryRayColor;
+    vec4 primaryRayInfo;
     if (sky_sdf(entry) > MAX_RAY_DISTANCE)
     {
-        rd = -normalize(ro);
+        primaryRayColor = vec4(vec3(0.0), 1.0);
+        primaryRayInfo = vec4(0.0);
+    }
+    else
+    {
+        bool didScatter;
+        primaryRayColor = TracePath(ro, rd, didScatter);
+        primaryRayInfo = vec4(didScatter ? 1.0 : 0.0, 0.0, 0.0, 0.0);
     }
 
-    // Trace path
-    const vec4 color = TracePath(ro, rd);
-    imageStore(nrcPrimaryRayImage, ivec2(x, y), color);
+    // Store output
+    imageStore(nrcPrimaryRayColorImage, imageCoord, primaryRayColor);
+    imageStore(nrcPrimaryRayInfoImage, imageCoord, primaryRayInfo);
 }

@@ -10,22 +10,22 @@ namespace en
         enum class PosEncoding
         {
             Direct = 0,
-            Frequency = 1,
-            Mrhe = 2
+            Direct_Frequency = 1,
+            Direct_Frequency_Mrhe = 2
         };
 
         enum class DirEncoding
         {
             Direct = 0,
-            Frequency = 1,
-            OneBlob = 2
+            Direct_Frequency = 1,
+            Direct_Frequency_OneBlob = 2
         };
 
         static void Init(VkDevice device);
         static void Shutdown(VkDevice device);
         static VkDescriptorSetLayout GetDescriptorSetLayout();
 
-        NeuralRadianceCache(size_t layerCount, size_t layerWidth, float nrcLearningRate);
+        NeuralRadianceCache(size_t layerCount, size_t layerWidth, float nrcLearningRate, uint32_t batchSize);
 
         void SetPosFrequencyEncoding(uint32_t freqCount);
         void SetPosMrheEncoding(
@@ -39,7 +39,7 @@ namespace en
         void SetDirFrequencyEncoding(uint32_t freqCount);
         void SetDirOneBlobEncoding(uint32_t featureCount);
 
-        void Init();
+        void Init(size_t renderSampleCount, size_t trainSampleCount);
 
         void Destroy();
 
@@ -58,11 +58,14 @@ namespace en
 
         uint32_t GetLayerCount() const;
         uint32_t GetLayerWidth() const;
-
         uint32_t GetInputFeatureCount() const;
-
         float GetNrcLearningRate() const;
         float GetMrheLearningRate() const;
+        uint32_t GetBatchSize() const;
+
+        size_t GetWeightsCount() const;
+        size_t GetBiasesCount() const;
+        size_t GetMrheCount() const;
 
         VkDescriptorSet GetDescriptorSet() const;
 
@@ -85,13 +88,13 @@ namespace en
 
         size_t m_LayerCount;
         size_t m_LayerWidth;
-
         uint32_t m_InputFeatureCount;
-
         float m_NrcLearningRate;
         float m_MrheLearningRate;
+        uint32_t m_BatchSize;
 
-        vk::Buffer* m_NeuronsBuffer;
+        vk::Buffer* m_RenderNeuronsBuffer;
+        vk::Buffer* m_TrainNeuronsBuffer;
 
         vk::Buffer* m_WeightsBuffer;
         vk::Buffer* m_DeltaWeightsBuffer;
@@ -103,15 +106,22 @@ namespace en
 
         vk::Buffer* m_MrheBuffer;
         vk::Buffer* m_DeltaMrheBuffer;
+        vk::Buffer* m_MrheResolutionsBuffer;
 
-        size_t m_NeuronsBufferSize;
+        size_t m_WeightsCount;
+        size_t m_BiasesCount;
+        size_t m_MrheCount;
+
+        size_t m_RenderNeuronsBufferSize;
+        size_t m_TrainNeuronsBufferSize;
         size_t m_WeightsBufferSize;
         size_t m_BiasesBufferSize;
         size_t m_MrheBufferSize;
+        size_t m_MrheResolutionsBufferSize;
 
         VkDescriptorSet m_DescSet;
 
-        void InitNn();
+        void InitNn(size_t renderSampleCount, size_t trainSampleCount);
         void CreateNnBuffers();
         void FillNnBuffers();
 
