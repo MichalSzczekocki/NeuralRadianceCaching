@@ -67,11 +67,11 @@ void main()
 	// Resample
 	ivec2 neighbourCoord;
 	uint vertexIndex;
-	
+
 	ResampleNeighbours(imageCoord, neighbourCoord, vertexIndex);
 
 	// Check if neighbour has been choosen for replacement
-	if (neighbourCoord == imageCoord) 
+	if (neighbourCoord == imageCoord)
 	{
 		return;
 	}

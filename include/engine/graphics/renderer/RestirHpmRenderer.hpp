@@ -40,6 +40,14 @@ namespace en
             uint32_t renderHeight;
 
             uint32_t pathVertexCount;
+
+            uint32_t spatialKernelSize;
+            uint32_t temporalKernelSize;
+        };
+
+        struct UniformData
+        {
+            uint32_t frameCounter;
         };
 
         static VkDescriptorSetLayout m_DescSetLayout;
@@ -61,12 +69,32 @@ namespace en
         std::vector<VkSpecializationMapEntry> m_SpecMapEntries;
         VkSpecializationInfo m_SpecInfo;
 
+        vk::Shader m_LocalInitShader;
+        VkPipeline m_LocalInitPipeline;
+
+        vk::Shader m_TemporalReuseShader;
+        VkPipeline m_TemporalReusePipeline;
+
+        vk::Shader m_SpatialReuseShader;
+        VkPipeline m_SpatialReusePipeline;
+
         vk::Shader m_RenderShader;
         VkPipeline m_RenderPipeline;
 
         VkImage m_OutputImage; // rgba32f output color
         VkDeviceMemory m_OutputImageMemory;
         VkImageView m_OutputImageView;
+
+        VkImage m_PixelInfoImage;
+        VkDeviceMemory m_PixelInfoImageMemory;
+        VkImageView m_PixelInfoImageView;
+
+        VkImage m_RestirStatsImage;
+        VkDeviceMemory m_RestirStatsImageMemory;
+        VkImageView m_RestirStatsImageView;
+
+        UniformData m_UniformData;
+        vk::Buffer m_UniformBuffer;
 
         VkDescriptorSet m_DescSet;
 
@@ -77,9 +105,14 @@ namespace en
 
         void InitSpecializationConstants();
 
+        void CreateLocalInitPipeline(VkDevice device);
+        void CreateTemporalReusePipeline(VkDevice device);
+        void CreateSpatialReusePipeline(VkDevice device);
         void CreateRenderPipeline(VkDevice device);
 
         void CreateOutputImage(VkDevice device);
+        void CreatePixelInfoImage(VkDevice device);
+        void CreateRestirStatsImage(VkDevice device);
 
         void AllocateAndUpdateDescriptorSet(VkDevice device);
 

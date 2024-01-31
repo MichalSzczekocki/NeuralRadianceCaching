@@ -16,7 +16,32 @@ namespace en
         outputImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         outputImageBinding.pImmutableSamplers = nullptr;
 
-        std::vector<VkDescriptorSetLayoutBinding> bindings = { outputImageBinding };
+        VkDescriptorSetLayoutBinding pixelInfoImageBinding;
+        pixelInfoImageBinding.binding = 1;
+        pixelInfoImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        pixelInfoImageBinding.descriptorCount = 1;
+        pixelInfoImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        pixelInfoImageBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding restirStatsImageBinding;
+        restirStatsImageBinding.binding = 2;
+        restirStatsImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        restirStatsImageBinding.descriptorCount = 1;
+        restirStatsImageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        restirStatsImageBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding uniformBufferBinding;
+        uniformBufferBinding.binding = 3;
+        uniformBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uniformBufferBinding.descriptorCount = 1;
+        uniformBufferBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        uniformBufferBinding.pImmutableSamplers = nullptr;
+
+        std::vector<VkDescriptorSetLayoutBinding> bindings = {
+                outputImageBinding,
+                pixelInfoImageBinding,
+                restirStatsImageBinding,
+                uniformBufferBinding };
 
         VkDescriptorSetLayoutCreateInfo layoutCI;
         layoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -31,9 +56,13 @@ namespace en
         // Create desc pool
         VkDescriptorPoolSize storageImagePoolSize;
         storageImagePoolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        storageImagePoolSize.descriptorCount = 1;
+        storageImagePoolSize.descriptorCount = 3;
 
-        std::vector<VkDescriptorPoolSize> poolSizes = { storageImagePoolSize };
+        VkDescriptorPoolSize uniformBufferPoolSize;
+        uniformBufferPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uniformBufferPoolSize.descriptorCount = 1;
+
+        std::vector<VkDescriptorPoolSize> poolSizes = { storageImagePoolSize, uniformBufferPoolSize };
 
         VkDescriptorPoolCreateInfo poolCI;
         poolCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -65,6 +94,7 @@ namespace en
             :
             m_Width(width),
             m_Height(height),
+            m_UniformData({ .frameCounter = 0 }),
             m_Camera(camera),
             m_VolumeData(volumeData),
             m_DirLight(dirLight),
@@ -72,8 +102,18 @@ namespace en
             m_HdrEnvMap(hdrEnvMap),
             m_VolumeReservoir(volumeReservoir),
             m_CommandPool(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, VulkanAPI::GetGraphicsQFI()),
-            m_RenderShader("restir/render.comp", false)
+            m_RenderShader("restir/render.comp", false),
+            m_TemporalReuseShader("restir/temporal_reuse.comp", false),
+            m_SpatialReuseShader("restir/spatial_reuse.comp", false),
+            m_LocalInitShader("restir/local_init.comp", false),
+            m_UniformBuffer(
+                    sizeof(UniformData),
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                    {})
     {
+        m_VolumeReservoir.Init(m_Width * m_Height);
+
         VkDevice device = VulkanAPI::GetDevice();
 
         m_CommandPool.AllocateBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -83,9 +123,16 @@ namespace en
 
         InitSpecializationConstants();
 
+        CreateLocalInitPipeline(device);
+        CreateTemporalReusePipeline(device);
+        CreateSpatialReusePipeline(device);
         CreateRenderPipeline(device);
 
         CreateOutputImage(device);
+        CreatePixelInfoImage(device);
+        CreateRestirStatsImage(device);
+
+        m_UniformBuffer.SetData(sizeof(UniformData), &m_UniformData, 0, 0);
 
         AllocateAndUpdateDescriptorSet(device);
 
@@ -107,13 +154,26 @@ namespace en
 
         VkResult result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
         ASSERT_VULKAN(result);
+
+        m_UniformData.frameCounter++;
+        m_UniformBuffer.SetData(sizeof(UniformData), &m_UniformData, 0, 0);
     }
 
     void RestirHpmRenderer::Destroy()
     {
         VkDevice device = VulkanAPI::GetDevice();
 
+        m_UniformBuffer.Destroy();
+
         m_CommandPool.Destroy();
+
+        vkDestroyImageView(device, m_RestirStatsImageView, nullptr);
+        vkFreeMemory(device, m_RestirStatsImageMemory, nullptr);
+        vkDestroyImage(device, m_RestirStatsImage, nullptr);
+
+        vkDestroyImageView(device, m_PixelInfoImageView, nullptr);
+        vkFreeMemory(device, m_PixelInfoImageMemory, nullptr);
+        vkDestroyImage(device, m_PixelInfoImage, nullptr);
 
         vkDestroyImageView(device, m_OutputImageView, nullptr);
         vkFreeMemory(device, m_OutputImageMemory, nullptr);
@@ -121,6 +181,15 @@ namespace en
 
         vkDestroyPipeline(device, m_RenderPipeline, nullptr);
         m_RenderShader.Destroy();
+
+        vkDestroyPipeline(device, m_SpatialReusePipeline, nullptr);
+        m_SpatialReuseShader.Destroy();
+
+        vkDestroyPipeline(device, m_TemporalReusePipeline, nullptr);
+        m_TemporalReuseShader.Destroy();
+
+        vkDestroyPipeline(device, m_LocalInitPipeline, nullptr);
+        m_LocalInitShader.Destroy();
 
         vkDestroyPipelineLayout(device, m_PipelineLayout, nullptr);
     }
@@ -165,7 +234,10 @@ namespace en
         m_SpecData.renderWidth = m_Width;
         m_SpecData.renderHeight = m_Height;
 
-        m_SpecData.pathVertexCount = 32;
+        m_SpecData.pathVertexCount = m_VolumeReservoir.GetPathVertexCount();
+
+        m_SpecData.spatialKernelSize = m_VolumeReservoir.GetSpatialKernelSize();
+        m_SpecData.temporalKernelSize = m_VolumeReservoir.GetTemporalKernelSize();
 
         // Fill map entries
         VkSpecializationMapEntry renderWidthEntry;
@@ -183,17 +255,102 @@ namespace en
         pathVertexCountEntry.offset = offsetof(SpecializationData, SpecializationData::pathVertexCount);
         pathVertexCountEntry.size = sizeof(uint32_t);
 
+        VkSpecializationMapEntry spatialKernelSizeEntry;
+        spatialKernelSizeEntry.constantID = 3;
+        spatialKernelSizeEntry.offset = offsetof(SpecializationData, SpecializationData::spatialKernelSize);
+        spatialKernelSizeEntry.size = sizeof(uint32_t);
+
+        VkSpecializationMapEntry temporalKernelSizeEntry;
+        temporalKernelSizeEntry.constantID = 4;
+        temporalKernelSizeEntry.offset = offsetof(SpecializationData, SpecializationData::temporalKernelSize);
+        temporalKernelSizeEntry.size = sizeof(uint32_t);
+
         m_SpecMapEntries = {
                 renderWidthEntry,
                 renderHeightEntry,
 
-                pathVertexCountEntry };
+                pathVertexCountEntry,
+
+                spatialKernelSizeEntry,
+                temporalKernelSizeEntry };
 
         // Update specialization info
         m_SpecInfo.mapEntryCount = m_SpecMapEntries.size();
         m_SpecInfo.pMapEntries = m_SpecMapEntries.data();
         m_SpecInfo.dataSize = sizeof(SpecializationData);
         m_SpecInfo.pData = &m_SpecData;
+    }
+
+    void RestirHpmRenderer::CreateLocalInitPipeline(VkDevice device)
+    {
+        VkPipelineShaderStageCreateInfo shaderStageCI;
+        shaderStageCI.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shaderStageCI.pNext = nullptr;
+        shaderStageCI.flags = 0;
+        shaderStageCI.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        shaderStageCI.module = m_LocalInitShader.GetVulkanModule();
+        shaderStageCI.pName = "main";
+        shaderStageCI.pSpecializationInfo = &m_SpecInfo;
+
+        VkComputePipelineCreateInfo pipelineCI;
+        pipelineCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCI.pNext = nullptr;
+        pipelineCI.flags = 0;
+        pipelineCI.stage = shaderStageCI;
+        pipelineCI.layout = m_PipelineLayout;
+        pipelineCI.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineCI.basePipelineIndex = 0;
+
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_LocalInitPipeline);
+        ASSERT_VULKAN(result);
+    }
+
+    void RestirHpmRenderer::CreateTemporalReusePipeline(VkDevice device)
+    {
+        VkPipelineShaderStageCreateInfo shaderStageCI;
+        shaderStageCI.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shaderStageCI.pNext = nullptr;
+        shaderStageCI.flags = 0;
+        shaderStageCI.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        shaderStageCI.module = m_TemporalReuseShader.GetVulkanModule();
+        shaderStageCI.pName = "main";
+        shaderStageCI.pSpecializationInfo = &m_SpecInfo;
+
+        VkComputePipelineCreateInfo pipelineCI;
+        pipelineCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCI.pNext = nullptr;
+        pipelineCI.flags = 0;
+        pipelineCI.stage = shaderStageCI;
+        pipelineCI.layout = m_PipelineLayout;
+        pipelineCI.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineCI.basePipelineIndex = 0;
+
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_TemporalReusePipeline);
+        ASSERT_VULKAN(result);
+    }
+
+    void RestirHpmRenderer::CreateSpatialReusePipeline(VkDevice device)
+    {
+        VkPipelineShaderStageCreateInfo shaderStageCI;
+        shaderStageCI.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shaderStageCI.pNext = nullptr;
+        shaderStageCI.flags = 0;
+        shaderStageCI.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        shaderStageCI.module = m_SpatialReuseShader.GetVulkanModule();
+        shaderStageCI.pName = "main";
+        shaderStageCI.pSpecializationInfo = &m_SpecInfo;
+
+        VkComputePipelineCreateInfo pipelineCI;
+        pipelineCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCI.pNext = nullptr;
+        pipelineCI.flags = 0;
+        pipelineCI.stage = shaderStageCI;
+        pipelineCI.layout = m_PipelineLayout;
+        pipelineCI.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineCI.basePipelineIndex = 0;
+
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_SpatialReusePipeline);
+        ASSERT_VULKAN(result);
     }
 
     void RestirHpmRenderer::CreateRenderPipeline(VkDevice device)
@@ -325,6 +482,216 @@ namespace en
         ASSERT_VULKAN(result);
     }
 
+    void RestirHpmRenderer::CreatePixelInfoImage(VkDevice device)
+    {
+        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // Create Image
+        VkImageCreateInfo imageCI;
+        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCI.pNext = nullptr;
+        imageCI.flags = 0;
+        imageCI.imageType = VK_IMAGE_TYPE_2D;
+        imageCI.format = format;
+        imageCI.extent = { m_Width, m_Height, 1 };
+        imageCI.mipLevels = 1;
+        imageCI.arrayLayers = 1;
+        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageCI.queueFamilyIndexCount = 0;
+        imageCI.pQueueFamilyIndices = nullptr;
+        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_PixelInfoImage);
+        ASSERT_VULKAN(result);
+
+        // Image Memory
+        VkMemoryRequirements memoryRequirements;
+        vkGetImageMemoryRequirements(device, m_PixelInfoImage, &memoryRequirements);
+
+        VkMemoryAllocateInfo allocateInfo;
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.pNext = nullptr;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = VulkanAPI::FindMemoryType(
+                memoryRequirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_PixelInfoImageMemory);
+        ASSERT_VULKAN(result);
+
+        result = vkBindImageMemory(device, m_PixelInfoImage, m_PixelInfoImageMemory, 0);
+        ASSERT_VULKAN(result);
+
+        // Create image view
+        VkImageViewCreateInfo imageViewCI;
+        imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCI.pNext = nullptr;
+        imageViewCI.flags = 0;
+        imageViewCI.image = m_PixelInfoImage;
+        imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCI.format = format;
+        imageViewCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewCI.subresourceRange.baseMipLevel = 0;
+        imageViewCI.subresourceRange.levelCount = 1;
+        imageViewCI.subresourceRange.baseArrayLayer = 0;
+        imageViewCI.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_PixelInfoImageView);
+        ASSERT_VULKAN(result);
+
+        // Change image layout
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        ASSERT_VULKAN(result);
+
+        vk::CommandRecorder::ImageLayoutTransfer(
+                m_CommandBuffer,
+                m_PixelInfoImage,
+                VK_IMAGE_LAYOUT_PREINITIALIZED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_ACCESS_NONE,
+                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        result = vkEndCommandBuffer(m_CommandBuffer);
+        ASSERT_VULKAN(result);
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        VkQueue queue = VulkanAPI::GetGraphicsQueue();
+        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        ASSERT_VULKAN(result);
+        result = vkQueueWaitIdle(queue);
+        ASSERT_VULKAN(result);
+    }
+
+    void RestirHpmRenderer::CreateRestirStatsImage(VkDevice device)
+    {
+        VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        // Create Image
+        VkImageCreateInfo imageCI;
+        imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCI.pNext = nullptr;
+        imageCI.flags = 0;
+        imageCI.imageType = VK_IMAGE_TYPE_2D;
+        imageCI.format = format;
+        imageCI.extent = { m_Width, m_Height, 1 };
+        imageCI.mipLevels = 1;
+        imageCI.arrayLayers = 1;
+        imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageCI.queueFamilyIndexCount = 0;
+        imageCI.pQueueFamilyIndices = nullptr;
+        imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+
+        VkResult result = vkCreateImage(device, &imageCI, nullptr, &m_RestirStatsImage);
+        ASSERT_VULKAN(result);
+
+        // Image Memory
+        VkMemoryRequirements memoryRequirements;
+        vkGetImageMemoryRequirements(device, m_RestirStatsImage, &memoryRequirements);
+
+        VkMemoryAllocateInfo allocateInfo;
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.pNext = nullptr;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = VulkanAPI::FindMemoryType(
+                memoryRequirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        result = vkAllocateMemory(device, &allocateInfo, nullptr, &m_RestirStatsImageMemory);
+        ASSERT_VULKAN(result);
+
+        result = vkBindImageMemory(device, m_RestirStatsImage, m_RestirStatsImageMemory, 0);
+        ASSERT_VULKAN(result);
+
+        // Create image view
+        VkImageViewCreateInfo imageViewCI;
+        imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCI.pNext = nullptr;
+        imageViewCI.flags = 0;
+        imageViewCI.image = m_RestirStatsImage;
+        imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCI.format = format;
+        imageViewCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewCI.subresourceRange.baseMipLevel = 0;
+        imageViewCI.subresourceRange.levelCount = 1;
+        imageViewCI.subresourceRange.baseArrayLayer = 0;
+        imageViewCI.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(device, &imageViewCI, nullptr, &m_RestirStatsImageView);
+        ASSERT_VULKAN(result);
+
+        // Change image layout
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+        ASSERT_VULKAN(result);
+
+        vk::CommandRecorder::ImageLayoutTransfer(
+                m_CommandBuffer,
+                m_RestirStatsImage,
+                VK_IMAGE_LAYOUT_PREINITIALIZED,
+                VK_IMAGE_LAYOUT_GENERAL,
+                VK_ACCESS_NONE,
+                VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        result = vkEndCommandBuffer(m_CommandBuffer);
+        ASSERT_VULKAN(result);
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        VkQueue queue = VulkanAPI::GetGraphicsQueue();
+        result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        ASSERT_VULKAN(result);
+        result = vkQueueWaitIdle(queue);
+        ASSERT_VULKAN(result);
+    }
+
     void RestirHpmRenderer::AllocateAndUpdateDescriptorSet(VkDevice device)
     {
         // Allocate descriptor set
@@ -356,8 +723,66 @@ namespace en
         outputImageWrite.pBufferInfo = nullptr;
         outputImageWrite.pTexelBufferView = nullptr;
 
+        // Pixel info image
+        VkDescriptorImageInfo pixelInfoImageInfo;
+        pixelInfoImageInfo.sampler = VK_NULL_HANDLE;
+        pixelInfoImageInfo.imageView = m_PixelInfoImageView;
+        pixelInfoImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet pixelInfoImageWrite;
+        pixelInfoImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        pixelInfoImageWrite.pNext = nullptr;
+        pixelInfoImageWrite.dstSet = m_DescSet;
+        pixelInfoImageWrite.dstBinding = 1;
+        pixelInfoImageWrite.dstArrayElement = 0;
+        pixelInfoImageWrite.descriptorCount = 1;
+        pixelInfoImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        pixelInfoImageWrite.pImageInfo = &pixelInfoImageInfo;
+        pixelInfoImageWrite.pBufferInfo = nullptr;
+        pixelInfoImageWrite.pTexelBufferView = nullptr;
+
+        // Restir stats image
+        VkDescriptorImageInfo restirStatsImageInfo;
+        restirStatsImageInfo.sampler = VK_NULL_HANDLE;
+        restirStatsImageInfo.imageView = m_RestirStatsImageView;
+        restirStatsImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet restirStatsImageWrite;
+        restirStatsImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        restirStatsImageWrite.pNext = nullptr;
+        restirStatsImageWrite.dstSet = m_DescSet;
+        restirStatsImageWrite.dstBinding = 2;
+        restirStatsImageWrite.dstArrayElement = 0;
+        restirStatsImageWrite.descriptorCount = 1;
+        restirStatsImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        restirStatsImageWrite.pImageInfo = &restirStatsImageInfo;
+        restirStatsImageWrite.pBufferInfo = nullptr;
+        restirStatsImageWrite.pTexelBufferView = nullptr;
+
+        // Uniform buffer
+        VkDescriptorBufferInfo uniformBufferInfo;
+        uniformBufferInfo.buffer = m_UniformBuffer.GetVulkanHandle();
+        uniformBufferInfo.offset = 0;
+        uniformBufferInfo.range = sizeof(UniformData);
+
+        VkWriteDescriptorSet uniformBufferWrite;
+        uniformBufferWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        uniformBufferWrite.pNext = nullptr;
+        uniformBufferWrite.dstSet = m_DescSet;
+        uniformBufferWrite.dstBinding = 3;
+        uniformBufferWrite.dstArrayElement = 0;
+        uniformBufferWrite.descriptorCount = 1;
+        uniformBufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uniformBufferWrite.pImageInfo = nullptr;
+        uniformBufferWrite.pBufferInfo = &uniformBufferInfo;
+        uniformBufferWrite.pTexelBufferView = nullptr;
+
         // Update descriptor set
-        std::vector<VkWriteDescriptorSet> writes = { outputImageWrite };
+        std::vector<VkWriteDescriptorSet> writes = {
+                outputImageWrite,
+                pixelInfoImageWrite,
+                restirStatsImageWrite,
+                uniformBufferWrite };
 
         vkUpdateDescriptorSets(device, writes.size(), writes.data(), 0, nullptr);
     }
@@ -398,9 +823,54 @@ namespace en
                 0, descSets.size(), descSets.data(),
                 0, nullptr);
 
+        // Local init pipeline
+        vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_LocalInitPipeline);
+        vkCmdDispatch(m_CommandBuffer, m_Width / 8, m_Height / 4, 1);
+
+        vkCmdPipelineBarrier(
+                m_CommandBuffer,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_DEPENDENCY_DEVICE_GROUP_BIT,
+                1, &memoryBarrier,
+                0, nullptr,
+                0, nullptr);
+
+        // Temporal reuse pipeline
+        if (m_SpecData.temporalKernelSize != 0)
+        {
+            vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_TemporalReusePipeline);
+            vkCmdDispatch(m_CommandBuffer, m_Width / 8, m_Height / 4, 1);
+
+            vkCmdPipelineBarrier(
+                    m_CommandBuffer,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_DEPENDENCY_DEVICE_GROUP_BIT,
+                    1, &memoryBarrier,
+                    0, nullptr,
+                    0, nullptr);
+        }
+
+        // Spacial reuse pipeline
+        if (m_SpecData.spatialKernelSize != 1)
+        {
+            vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_SpatialReusePipeline);
+            vkCmdDispatch(m_CommandBuffer, m_Width / 8, m_Height / 4, 1);
+
+            vkCmdPipelineBarrier(
+                    m_CommandBuffer,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_DEPENDENCY_DEVICE_GROUP_BIT,
+                    1, &memoryBarrier,
+                    0, nullptr,
+                    0, nullptr);
+        }
+
         // Render pipeline
         vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_RenderPipeline);
-        vkCmdDispatch(m_CommandBuffer, m_Width / 8, m_Height / 8, 1);
+        vkCmdDispatch(m_CommandBuffer, m_Width / 8, m_Height / 4, 1);
 
         // End
         result = vkEndCommandBuffer(m_CommandBuffer);
