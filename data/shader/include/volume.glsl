@@ -24,7 +24,7 @@ vec3[2] find_entry_exit(vec3 ro, vec3 rd)
 		ro += dist * rd;
 	} while (dist > MIN_RAY_DISTANCE && dist < MAX_RAY_DISTANCE);
 	vec3 exit = ro;
-	
+
 	return vec3[2]( entry, exit );
 }
 
@@ -32,7 +32,7 @@ void gen_sample_points(vec3 start_pos, vec3 end_pos, out vec3 samples[SAMPLE_COU
 {
 	vec3 dir = end_pos - start_pos;
 	for (int i = 0; i < SAMPLE_COUNT; i++)
-		samples[i] = start_pos + dir * (float(i) / float(SAMPLE_COUNT));
+	samples[i] = start_pos + dir * (float(i) / float(SAMPLE_COUNT));
 }
 
 vec3 get_sky_uvw(vec3 pos)

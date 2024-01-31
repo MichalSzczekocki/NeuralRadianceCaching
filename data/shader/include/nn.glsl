@@ -77,7 +77,7 @@ void ApplyWeights0()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr0[inCol];
@@ -94,7 +94,7 @@ void ApplyWeights1()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr1[inCol];
@@ -111,7 +111,7 @@ void ApplyWeights2()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr2[inCol];
@@ -128,7 +128,7 @@ void ApplyWeights3()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr3[inCol];
@@ -145,7 +145,7 @@ void ApplyWeights4()
 	for (uint outRow = 0; outRow < 64; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr4[inCol];
@@ -162,7 +162,7 @@ void ApplyWeights5()
 	for (uint outRow = 0; outRow < 3; outRow++)
 	{
 		float sum = 0;
-		
+
 		for (uint inCol = 0; inCol < 64; inCol++)
 		{
 			float inVal = nr5[inCol];
@@ -236,19 +236,19 @@ void Forward()
 
 	ApplyWeights0();
 	ActivateNr1();
-	
+
 	ApplyWeights1();
 	ActivateNr2();
-	
+
 	ApplyWeights2();
 	ActivateNr3();
-	
+
 	ApplyWeights3();
 	ActivateNr4();
 
 	ApplyWeights4();
 	ActivateNr5();
-	
+
 	ApplyWeights5();
 	ActivateNr6();
 
@@ -307,7 +307,7 @@ void Backprop4()
 			float deltaWeight = -nr4[col] * nr5[row];
 			atomicAdd(matDeltaWeights4[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases4[row], -nr5[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -341,7 +341,7 @@ void Backprop3()
 			float deltaWeight = -nr3[col] * nr4[row];
 			atomicAdd(matDeltaWeights3[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases3[row], -nr4[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -375,7 +375,7 @@ void Backprop2()
 			float deltaWeight = -nr2[col] * nr3[row];
 			atomicAdd(matDeltaWeights2[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases2[row], -nr3[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -409,7 +409,7 @@ void Backprop1()
 			float deltaWeight = -nr1[col] * nr2[row];
 			atomicAdd(matDeltaWeights1[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases1[row], -nr2[row] * ONE_OVER_PIXEL_COUNT);
 	}
 
@@ -443,7 +443,7 @@ void Backprop0()
 			float deltaWeight = -nr0[col] * nr1[row];
 			atomicAdd(matDeltaWeights0[linearIndex], deltaWeight * ONE_OVER_PIXEL_COUNT);
 		}
-		
+
 		atomicAdd(matDeltaBiases0[row], -nr1[row] * ONE_OVER_PIXEL_COUNT);
 	}
 

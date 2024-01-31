@@ -1,16 +1,12 @@
 #version 460
-#define NRC
+#define RESTIR
 #include "common.glsl"
 
-layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-ivec2 imageCoord;
-
-#define PATH_SAMPLE_COUNT 32
-vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
+void GenPath(const vec3 rayOrigin, const vec3 rayDir, out vec3 path[PATH_VERTEX_COUNT])
 {
-    vec3 scatteredLight = vec3(0.0);
-    float transmittance = 1.0;
+    path[0] = rayOrigin;
 
     const vec3 entry = find_entry_exit(rayOrigin, rayDir)[0];
 
@@ -20,25 +16,50 @@ vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
     vec3 currentDir = rayDir;
     vec3 lastDir = vec3(0.0);
 
-    float totalTermProb = 1.0;
-
-    didScatter = false;
-    for (uint i = 0; i < PATH_SAMPLE_COUNT; i++)
+    for (uint i = 0; i < PATH_VERTEX_COUNT; i++)
     {
         const float density = getDensity(currentPoint);
 
         if (density > 0.0)
         {
-            didScatter = true;
+            // Update last
+            lastPoint = currentPoint;
+            lastDir = currentDir;
 
-            if (RandFloat(1.0) > totalTermProb)
-            {
-                imageStore(nrcNeuralRayOriginImage, imageCoord, vec4(currentPoint, 0.0));
-                imageStore(nrcNeuralRayDirImage, imageCoord, vec4(currentDir, 0.0));
-                return vec4(scatteredLight, transmittance);
-            }
-            totalTermProb *= 0.5;
+            // Generate new direction
+            currentDir = NewRayDir(currentDir);
+        }
 
+        path[i] = currentPoint;
+
+        // Generate new point
+        const vec3 exit = find_entry_exit(currentPoint, currentDir)[1];
+        const float maxDistance = distance(exit, currentPoint) * 0.1;
+        const float nextDistance = RandFloat(maxDistance);
+        currentPoint = currentPoint + (currentDir * nextDistance);
+    }
+}
+
+vec4 ShadePath(const vec3 path[PATH_VERTEX_COUNT])
+{
+    vec3 scatteredLight = vec3(0.0);
+    float transmittance = 1.0;
+
+    vec3 currentPoint;
+    vec3 lastPoint = path[0];
+
+    vec3 currentDir;
+    vec3 lastDir = vec3(0.0);
+
+    for (uint i = 1; i < PATH_VERTEX_COUNT; i++)
+    {
+        currentPoint = path[i];
+        currentDir = normalize(currentPoint - lastPoint);
+
+        const float density = getDensity(currentPoint);
+
+        if (density > 0.0)
+        {
             // Get scene lighting
             const vec3 sceneLighting = TraceScene(currentPoint, currentDir);
 
@@ -55,26 +76,24 @@ vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
             // Update last
             lastPoint = currentPoint;
             lastDir = currentDir;
-
-            // Generate new direction
-            currentDir = NewRayDir(currentDir);
         }
-
-        // Generate new point
-        const vec3 exit = find_entry_exit(currentPoint, currentDir)[1];
-        const float maxDistance = distance(exit, currentPoint) * 0.1;
-        const float nextDistance = RandFloat(maxDistance);
-        currentPoint = currentPoint + (currentDir * nextDistance);
     }
 
     return vec4(scatteredLight, transmittance);
+}
+
+vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir)
+{
+    vec3 path[PATH_VERTEX_COUNT];
+    GenPath(rayOrigin, rayDir, path);
+    const vec4 pathOutput = ShadePath(path);
+    return pathOutput;
 }
 
 void main()
 {
     const uint x = gl_GlobalInvocationID.x;
     const uint y = gl_GlobalInvocationID.y;
-    imageCoord = ivec2(x, y);
 
     // Fraguv and world pos
     const vec2 fragUV = vec2(float(x) * ONE_OVER_RENDER_WIDTH, float(y) * ONE_OVER_RENDER_HEIGHT);
@@ -96,20 +115,20 @@ void main()
     const vec3 exit = entry_exit[1];
 
     vec4 primaryRayColor;
-    vec4 primaryRayInfo;
     if (sky_sdf(entry) > MAX_RAY_DISTANCE)
     {
         primaryRayColor = vec4(vec3(0.0), 1.0);
-        primaryRayInfo = vec4(0.0);
     }
     else
     {
-        bool didScatter;
-        primaryRayColor = TracePath(ro, rd, didScatter);
-        primaryRayInfo = vec4(didScatter ? 1.0 : 0.0, 0.0, 0.0, 0.0);
+        primaryRayColor = TracePath(ro, rd);
     }
 
-    // Store output
-    imageStore(nrcPrimaryRayColorImage, imageCoord, primaryRayColor);
-    imageStore(nrcPrimaryRayInfoImage, imageCoord, primaryRayInfo);
+    if (primaryRayColor.w == 1.0)
+    {
+        primaryRayColor.xyz = SampleHdrEnvMap(rd, false);
+    }
+
+    const ivec2 invertedYImageCoord = ivec2(x, RENDER_HEIGHT - (y + 1));
+    imageStore(outputImage, invertedYImageCoord, primaryRayColor);
 }

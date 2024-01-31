@@ -1,0 +1,86 @@
+#version 460
+#define RESTIR
+#include "common.glsl"
+
+layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
+
+void ResampleNeighbours(const ivec2 imageCoord, out ivec2 neighbourCoord, out uint vertexIndex)
+{
+	vec4 restirStats = imageLoad(restirStatsImage, imageCoord);
+	uint sampleStreamIndex = uint(restirStats.x);
+
+	for (int x = SPATIAL_KERNEL_MIN; x <= SPATIAL_KERNEL_MAX; x++)
+	{
+		for (int y = SPATIAL_KERNEL_MIN; y <= SPATIAL_KERNEL_MAX; y++)
+		{
+			const vec4 pixelInfo = imageLoad(pixelInfoImage, imageCoord);
+			const bool didScatter = pixelInfo.w == 1.0;
+
+			if ((x == 0 && y == 0) || !didScatter)
+			{
+				continue;
+			}
+
+			for (uint v = 1; v < PATH_VERTEX_COUNT; v++)
+			{
+				float prob = 1.0 / float(sampleStreamIndex);
+				sampleStreamIndex++;
+
+				if (RandFloat(1.0) < prob)
+				{
+					neighbourCoord = imageCoord + ivec2(x, y);
+					vertexIndex = v;
+				}
+			}
+		}
+	}
+
+	restirStats.x = float(sampleStreamIndex);
+	restirStats.y = float(vertexIndex);
+	imageStore(restirStatsImage, imageCoord, restirStats);
+}
+
+void UpdateReservoir(const ivec2 imageCoord, const ivec2 neighbourCoord, const uint vertexIndex)
+{
+	for (uint v = vertexIndex; v < PATH_VERTEX_COUNT; v++)
+	{
+		vec3 vertexPos;
+		vec3 vertexDir;
+		LoadPathVertex(neighbourCoord, v, vertexPos, vertexDir);
+		StorePathVertex(imageCoord, v, vertexPos, vertexDir);
+	}
+}
+
+void main()
+{
+	const uint x = gl_GlobalInvocationID.x;
+	const uint y = gl_GlobalInvocationID.y;
+	const ivec2 imageCoord = ivec2(x, y);
+
+	// Fraguv and world pos
+	const vec2 fragUV = vec2(float(x) * ONE_OVER_RENDER_WIDTH, float(y) * ONE_OVER_RENDER_HEIGHT);
+
+	// Setup random
+	preRand = volumeData.random.x * fragUV.x;
+	prePreRand = volumeData.random.y * fragUV.y;
+
+	// Resample
+	ivec2 neighbourCoord;
+	uint vertexIndex;
+	
+	ResampleNeighbours(imageCoord, neighbourCoord, vertexIndex);
+
+	// Check if neighbour has been choosen for replacement
+	if (neighbourCoord == imageCoord) 
+	{
+		return;
+	}
+
+	// Check if neighbour is within bounds
+	if (neighbourCoord.x < 0 || neighbourCoord.y < 0 || neighbourCoord.x >= RENDER_WIDTH || neighbourCoord.y >= RENDER_HEIGHT)
+	{
+		return;
+	}
+
+	UpdateReservoir(imageCoord, neighbourCoord, vertexIndex);
+}
