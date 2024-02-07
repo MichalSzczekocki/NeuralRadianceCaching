@@ -23,7 +23,8 @@
 #include <engine/graphics/renderer/RestirHpmRenderer.hpp>
 
 //#define NRC
-#define RESTIR
+//#define RESTIR
+#define TCNN
 
 #ifdef NRC
 en::NrcHpmRenderer* hpmRenderer = nullptr;
@@ -33,6 +34,9 @@ en::NrcHpmRenderer* hpmRenderer = nullptr;
 en::RestirHpmRenderer* hpmRenderer = nullptr;
 #endif
 
+#define RENDER (NRC || RESTIR)
+
+#ifndef RENDER
 void RecordSwapchainCommandBuffer(VkCommandBuffer commandBuffer, VkImage image)
 {
     uint32_t width = en::Window::GetWidth();
@@ -439,6 +443,15 @@ void RunRestirHpm()
 }
 #endif
 
+#endif // RENDER
+
+#ifdef TCNN
+
+#include <cuda_main.hpp>
+
+
+#endif // TCNN
+
 int main()
 {
 #ifdef NRC
@@ -447,6 +460,10 @@ int main()
 
 #ifdef RESTIR
     RunRestirHpm();
+#endif
+
+#ifdef TCNN
+    RunTcnn();
 #endif
 
     return 0;
