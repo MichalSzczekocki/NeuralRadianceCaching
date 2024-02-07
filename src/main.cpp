@@ -34,9 +34,7 @@ en::NrcHpmRenderer* hpmRenderer = nullptr;
 en::RestirHpmRenderer* hpmRenderer = nullptr;
 #endif
 
-#define RENDER (NRC || RESTIR)
-
-#ifndef RENDER
+#ifndef TCNN
 void RecordSwapchainCommandBuffer(VkCommandBuffer commandBuffer, VkImage image)
 {
     uint32_t width = en::Window::GetWidth();
@@ -113,6 +111,7 @@ void SwapchainResizeCallback()
     en::ImGuiRenderer::Resize(width, height);
     en::ImGuiRenderer::SetBackgroundImageView(hpmRenderer->GetImageView());
 }
+#endif
 
 #ifdef NRC
 void RunNrcHpm()
@@ -442,8 +441,6 @@ void RunRestirHpm()
     en::Log::Info("Ending " + appName);
 }
 #endif
-
-#endif // RENDER
 
 #ifdef TCNN
 

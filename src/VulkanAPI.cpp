@@ -1,3 +1,4 @@
+#define VK_USE_PLATFORM_WIN32_KHR
 #include <engine/graphics/VulkanAPI.hpp>
 #include <vector>
 #include <engine/util/Log.hpp>
@@ -202,6 +203,8 @@ namespace en
         // Select wanted extensions
         std::vector<const char*> extensions = Window::GetVulkanExtensions();
         extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
 
         // Create
         VkApplicationInfo appInfo;
@@ -425,12 +428,16 @@ namespace en
                 VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
                 VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
                 VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME,
-                VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME,
                 VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
                 VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,
                 VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME,
                 VK_KHR_16BIT_STORAGE_EXTENSION_NAME,
-                VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_EXTENSION_NAME};
+                VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_EXTENSION_NAME,
+                VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+                VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+                VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+                VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+                VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME };
 
         float priorities[] = { 1.0f, 1.0f };
         VkDeviceQueueCreateInfo queueCreateInfo;
