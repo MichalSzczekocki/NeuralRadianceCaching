@@ -50,28 +50,52 @@ layout(set = 4, binding = 3) uniform HdrEnvMapData
 	float hpmStrength;
 } hdrEnvMapData;
 
-layout(set = 5, binding = 0, rgba32f) uniform image2D nrcOutputImage;
+layout(set = 5, binding = 0, rgba32f) uniform image2D outputImage;
 
-layout(set = 5, binding = 1, rgba32f) uniform image2D nrcPrimaryRayColorImage;
+layout(set = 5, binding = 1, rgba32f) uniform image2D primaryRayColorImage;
 
-layout(set = 5, binding = 2, rgba32f) uniform image2D nrcPrimaryRayInfoImage;
+layout(set = 5, binding = 2, rgba32f) uniform image2D primaryRayInfoImage;
 
-layout(set = 5, binding = 3) buffer NrcInferInput
+layout(set = 5, binding = 3, rgba32f) uniform image2D nrcRayOriginImage;
+
+layout(set = 5, binding = 4, rgba32f) uniform image2D nrcRayDirImage;
+
+struct NrcInput
 {
-	float nrcInferInput[];
+	float posX;
+	float posY;
+	float posZ;
+	float theta;
+	float phi;
 };
 
-layout(set = 5, binding = 4) buffer NrcInferOutput
+struct NrcOutput
 {
-	float nrcInferOutput[];
+	float r;
+	float g;
+	float b;
 };
 
-layout(set = 5, binding = 5) buffer NrcTrainInput
+layout(std430, set = 5, binding = 5) buffer NrcInferInput
 {
-	float nrcTrainInput[];
+	//float nrcInferInput[];
+	NrcInput nrcInferInput[];
 };
 
-layout(set = 5, binding = 6) buffer NrcTrainTarget
+layout(std430, set = 5, binding = 6) buffer NrcInferOutput
 {
-	float nrcTrainTarget[];
+	//float nrcInferOutput[];
+	NrcOutput nrcInferOutput[];
+};
+
+layout(std430, set = 5, binding = 7) buffer NrcTrainInput
+{
+	//float nrcTrainInput[];
+	NrcInput nrcTrainInput[];
+};
+
+layout(std430, set = 5, binding = 8) buffer NrcTrainTarget
+{
+	//float nrcTrainTarget[];
+	NrcOutput nrcTrainTarget[];
 };
