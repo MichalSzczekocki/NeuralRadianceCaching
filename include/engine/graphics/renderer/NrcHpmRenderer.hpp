@@ -5,152 +5,142 @@
 #include <engine/graphics/DirLight.hpp>
 #include <engine/graphics/PointLight.hpp>
 #include <engine/graphics/HdrEnvMap.hpp>
-#include <engine/graphics/NeuralRadianceCache.hpp>
 #include <engine/graphics/vulkan/Shader.hpp>
 #include <engine/graphics/vulkan/CommandPool.hpp>
+#include <cuda_runtime.h>
 
 namespace en
 {
-    class NrcHpmRenderer
-    {
-    public:
-        static void Init(VkDevice device);
-        static void Shutdown(VkDevice device);
+	class NeuralRadianceCache;
 
-        NrcHpmRenderer(
-                uint32_t width,
-                uint32_t height,
-                uint32_t trainWidth,
-                uint32_t trainHeight,
-                const Camera& camera,
-                const VolumeData& volumeData,
-                const DirLight& dirLight,
-                const PointLight& pointLight,
-                const HdrEnvMap& hdrEnvMap,
-                NeuralRadianceCache& nrc);
+	class NrcHpmRenderer
+	{
+	public:
+		static void Init(VkDevice device);
+		static void Shutdown(VkDevice device);
 
-        void Render(VkQueue queue) const;
-        void Destroy();
+		NrcHpmRenderer(
+			uint32_t width,
+			uint32_t height,
+			uint32_t trainWidth,
+			uint32_t trainHeight,
+			const Camera& camera,
+			const VolumeData& volumeData,
+			const DirLight& dirLight,
+			const PointLight& pointLight,
+			const HdrEnvMap& hdrEnvMap,
+			NeuralRadianceCache& nrc);
 
-        VkImage GetImage() const;
-        VkImageView GetImageView() const;
+		void Render(VkQueue queue) const;
+		void Destroy();
 
-    private:
-        struct SpecializationData
-        {
-            uint32_t renderWidth;
-            uint32_t renderHeight;
+		VkImage GetImage() const;
+		VkImageView GetImageView() const;
 
-            uint32_t trainWidth;
-            uint32_t trainHeight;
+	private:
+		struct SpecializationData
+		{
+			uint32_t renderWidth;
+			uint32_t renderHeight;
 
-            uint32_t posEncoding;
-            uint32_t dirEncoding;
+			uint32_t trainWidth;
+			uint32_t trainHeight;
+		};
 
-            uint32_t posFreqCount;
-            uint32_t posMinFreq;
-            uint32_t posMaxFreq;
-            uint32_t posLevelCount;
-            uint32_t posHashTableSize;
-            uint32_t posFeatureCount;
+		static VkDescriptorSetLayout m_DescSetLayout;
+		static VkDescriptorPool m_DescPool;
 
-            uint32_t dirFreqCount;
-            uint32_t dirFeatureCount;
+		uint32_t m_FrameWidth;
+		uint32_t m_FrameHeight;
 
-            uint32_t layerCount;
-            uint32_t layerWidth;
-            uint32_t inputFeatureCount;
-            float nrcLearningRate;
-            float mrheLearningRate;
-            uint32_t batchSize;
-        };
+		uint32_t m_TrainWidth;
+		uint32_t m_TrainHeight;
 
-        static VkDescriptorSetLayout m_DescSetLayout;
-        static VkDescriptorPool m_DescPool;
+		const Camera& m_Camera;
+		const VolumeData& m_VolumeData;
+		const DirLight& m_DirLight;
+		const PointLight& m_PointLight;
+		const HdrEnvMap& m_HdrEnvMap;
+		NeuralRadianceCache& m_Nrc;
 
-        uint32_t m_FrameWidth;
-        uint32_t m_FrameHeight;
+		VkSemaphore m_CudaStartSemaphore;
+		cudaExternalSemaphore_t m_CuExtCudaStartSemaphore;
 
-        uint32_t m_TrainWidth;
-        uint32_t m_TrainHeight;
+		VkSemaphore m_CudaFinishedSemaphore;
+		cudaExternalSemaphore_t m_CuExtCudaFinishedSemaphore;
 
-        const Camera& m_Camera;
-        const VolumeData& m_VolumeData;
-        const DirLight& m_DirLight;
-        const PointLight& m_PointLight;
-        const HdrEnvMap& m_HdrEnvMap;
-        NeuralRadianceCache& m_Nrc;
+		VkDeviceSize m_NrcInferInputBufferSize;
+		vk::Buffer* m_NrcInferInputBuffer = nullptr;
+		cudaExternalMemory_t m_NrcInferInputCuExtMem;
+		void* m_NrcInferInputDCuBuffer;
 
-        VkPipelineLayout m_PipelineLayout;
+		VkDeviceSize m_NrcInferOutputBufferSize;
+		vk::Buffer* m_NrcInferOutputBuffer = nullptr;
+		cudaExternalMemory_t m_NrcInferOutputCuExtMem;
+		void* m_NrcInferOutputDCuBuffer;
 
-        SpecializationData m_SpecData;
-        std::vector<VkSpecializationMapEntry> m_SpecMapEntries;
-        VkSpecializationInfo m_SpecInfo;
+		VkDeviceSize m_NrcTrainInputBufferSize;
+		vk::Buffer* m_NrcTrainInputBuffer = nullptr;
+		cudaExternalMemory_t m_NrcTrainInputCuExtMem;
+		void* m_NrcTrainInputDCuBuffer;
 
-        vk::Shader m_GenRaysShader;
-        VkPipeline m_GenRaysPipeline;
+		VkDeviceSize m_NrcTrainTargetBufferSize;
+		vk::Buffer* m_NrcTrainTargetBuffer = nullptr;
+		cudaExternalMemory_t m_NrcTrainTargetCuExtMem;
+		void* m_NrcTrainTargetDCuBuffer;
 
-        vk::Shader m_FilterRaysShader;
-        VkPipeline m_FilterRaysPipeline;
+		VkPipelineLayout m_PipelineLayout;
 
-        vk::Shader m_ForwardShader;
-        VkPipeline m_ForwardPipeline;
+		SpecializationData m_SpecData;
+		std::vector<VkSpecializationMapEntry> m_SpecMapEntries;
+		VkSpecializationInfo m_SpecInfo;
 
-        vk::Shader m_RenderShader;
-        VkPipeline m_RenderPipeline;
+		vk::Shader m_GenRaysShader;
+		VkPipeline m_GenRaysPipeline;
 
-        VkImage m_OutputImage; // rgba32f output color
-        VkDeviceMemory m_OutputImageMemory;
-        VkImageView m_OutputImageView;
+		vk::Shader m_CalcNrcTargetsShader;
+		VkPipeline m_CalcNrcTargetsPipeline;
 
-        VkImage m_PrimaryRayColorImage; // rgb32f primary ray output color + a32f transmittance
-        VkDeviceMemory m_PrimaryRayColorImageMemory;
-        VkImageView m_PrimaryRayColorImageView;
+		vk::Shader m_RenderShader;
+		VkPipeline m_RenderPipeline;
 
-        VkImage m_PrimaryRayInfoImage;
-        VkDeviceMemory m_PrimaryRayInfoImageMemory;
-        VkImageView m_PrimaryRayInfoImageView;
+		VkImage m_OutputImage; // rgba32f output color
+		VkDeviceMemory m_OutputImageMemory;
+		VkImageView m_OutputImageView;
 
-        VkImage m_NeuralRayOriginImage;
-        VkDeviceMemory m_NeuralRayOriginImageMemory;
-        VkImageView m_NeuralRayOriginImageView;
+		VkImage m_PrimaryRayColorImage; // rgb32f primary ray output color + a32f transmittance
+		VkDeviceMemory m_PrimaryRayColorImageMemory;
+		VkImageView m_PrimaryRayColorImageView;
 
-        VkImage m_NeuralRayDirImage;
-        VkDeviceMemory m_NeuralRayDirImageMemory;
-        VkImageView m_NeuralRayDirImageView;
+		VkImage m_PrimaryRayInfoImage;
+		VkDeviceMemory m_PrimaryRayInfoImageMemory;
+		VkImageView m_PrimaryRayInfoImageView;
 
-        VkImage m_NeuralRayColorImage;
-        VkDeviceMemory m_NeuralRayColorImageMemory;
-        VkImageView m_NeuralRayColorImageView;
+		VkDescriptorSet m_DescSet;
 
-        VkImage m_NeuralRayTargetImage;
-        VkDeviceMemory m_NeuralRayTargetImageMemory;
-        VkImageView m_NeuralRayTargetImageView;
+		vk::CommandPool m_CommandPool;
+		VkCommandBuffer m_PreCudaCommandBuffer;
+		VkCommandBuffer m_PostCudaCommandBuffer;
 
-        VkDescriptorSet m_DescSet;
+		void CreateSyncObjects(VkDevice device);
 
-        vk::CommandPool m_CommandPool;
-        VkCommandBuffer m_CommandBuffer;
+		void CreateNrcBuffers();
 
-        void CreatePipelineLayout(VkDevice device);
+		void CreatePipelineLayout(VkDevice device);
 
-        void InitSpecializationConstants();
+		void InitSpecializationConstants();
 
-        void CreateGenRaysPipeline(VkDevice device);
-        void CreateFilterRaysPipeline(VkDevice device);
-        void CreateForwardPipeline(VkDevice device);
-        void CreateRenderPipeline(VkDevice device);
+		void CreateGenRaysPipeline(VkDevice device);
+		void CreateCalcNrcTargetsPipeline(VkDevice device);
+		void CreateRenderPipeline(VkDevice device);
 
-        void CreateOutputImage(VkDevice device);
-        void CreatePrimaryRayColorImage(VkDevice device);
-        void CreatePrimaryRayInfoImage(VkDevice device);
-        void CreateNeuralRayOriginImage(VkDevice device);
-        void CreateNeuralRayDirImage(VkDevice device);
-        void CreateNeuralRayColorImage(VkDevice device);
-        void CreateNeuralRayTargetImage(VkDevice device);
+		void CreateOutputImage(VkDevice device);
+		void CreatePrimaryRayColorImage(VkDevice device);
+		void CreatePrimaryRayInfoImage(VkDevice device);
 
-        void AllocateAndUpdateDescriptorSet(VkDevice device);
+		void AllocateAndUpdateDescriptorSet(VkDevice device);
 
-        void RecordCommandBuffer();
-    };
+		void RecordPreCudaCommandBuffer();
+		void RecordPostCudaCommandBuffer();
+	};
 }
