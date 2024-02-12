@@ -78,6 +78,11 @@ namespace en
     {
     }
 
+    float NeuralRadianceCache::GetLoss() const
+    {
+        return m_Loss;
+    }
+
     void NeuralRadianceCache::Inference()
     {
         for (size_t i = 0; i < m_InferInputBatches.size(); i++)
@@ -94,7 +99,8 @@ namespace en
         {
             const tcnn::GPUMatrix<float>& inputBatch = m_TrainInputBatches[i];
             const tcnn::GPUMatrix<float>& targetBatch = m_TrainTargetBatches[i];
-            m_Model.trainer->training_step(inputBatch, targetBatch);
+            auto forwardContext = m_Model.trainer->training_step(inputBatch, targetBatch);
+            m_Loss = m_Model.trainer->loss(*forwardContext.get());
         }
     }
 
