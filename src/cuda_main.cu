@@ -112,7 +112,7 @@ int main()
 {
     // Start engine
     const std::string appName("NeuralRadianceCaching");
-    uint32_t width = 768; // Multiple of 128 for nrc batch size
+    uint32_t width = 1024; // Multiple of 128 for nrc batch size
     uint32_t height = width;
     en::Log::Info("Starting " + appName);
     en::Window::Init(width, height, false, appName);
@@ -204,8 +204,8 @@ int main()
     hpmRenderer = new en::NrcHpmRenderer(
             width,
             height,
-            128,
-            128,
+            0.05f,
+
             camera,
             volumeData,
             dirLight,
