@@ -1,12 +1,8 @@
 #include "extensions.glsl"
 
-#include "defines.glsl"
-
 #ifdef NRC
 #include "nrc-descriptors.glsl"
 #include "nrc-constants.glsl"
-#include "mrhe.glsl"
-#include "oneblob.glsl"
 #endif
 
 #ifdef RESTIR

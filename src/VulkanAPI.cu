@@ -45,7 +45,6 @@ namespace en
         vk::Texture2D::Init();
         VolumeData::Init(m_Device);
         DirLight::Init();
-        NeuralRadianceCache::Init(m_Device);
         PointLight::Init(m_Device);
         HdrEnvMap::Init(m_Device);
         NrcHpmRenderer::Init(m_Device);
@@ -62,7 +61,6 @@ namespace en
         NrcHpmRenderer::Shutdown(m_Device);
         HdrEnvMap::Shutdown(m_Device);
         PointLight::Shutdown(m_Device);
-        NeuralRadianceCache::Shutdown(m_Device);
         DirLight::Shutdown();
         VolumeData::Shutdown(m_Device);
         vk::Texture2D::Shutdown();
@@ -310,12 +308,6 @@ namespace en
                 }
             }
 
-            // Cooperative matrix types
-            //uint32_t coopMatPropertyCount;
-            //vkGetPhysicalDeviceCooperativeMatrixPropertiesNV(physicalDevice, &coopMatPropertyCount, nullptr);
-            //std::vector<VkCooperativeMatrixPropertiesNV> coopMatProperties(coopMatPropertyCount);
-            //vkGetPhysicalDeviceCooperativeMatrixPropertiesNV(physicalDevice, &coopMatPropertyCount, coopMatProperties.data());
-
             // Surface support
             VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
             vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, m_Surface, &surfaceCapabilities);
@@ -455,23 +447,6 @@ namespace en
         features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
         features11.pNext = nullptr;
         features11.storageBuffer16BitAccess = VK_TRUE;
-
-        // Atomic float 2 features
-//        VkPhysicalDeviceShaderAtomicFloat2FeaturesEXT atomicFloat2Features;
-//        atomicFloat2Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_2_FEATURES_EXT;
-//        atomicFloat2Features.pNext = &features11;
-//        atomicFloat2Features.shaderBufferFloat16Atomics = VK_TRUE;
-//        atomicFloat2Features.shaderBufferFloat16AtomicAdd = VK_TRUE;
-//        atomicFloat2Features.shaderBufferFloat16AtomicMinMax = VK_FALSE;
-//        atomicFloat2Features.shaderBufferFloat32AtomicMinMax = VK_FALSE;
-//        atomicFloat2Features.shaderBufferFloat64AtomicMinMax = VK_FALSE;
-//        atomicFloat2Features.shaderSharedFloat16Atomics = VK_FALSE;
-//        atomicFloat2Features.shaderSharedFloat16AtomicAdd = VK_FALSE;
-//        atomicFloat2Features.shaderSharedFloat16AtomicMinMax = VK_FALSE;
-//        atomicFloat2Features.shaderSharedFloat32AtomicMinMax = VK_FALSE;
-//        atomicFloat2Features.shaderSharedFloat64AtomicMinMax = VK_FALSE;
-//        atomicFloat2Features.shaderImageFloat32AtomicMinMax = VK_FALSE;
-//        atomicFloat2Features.sparseImageFloat32AtomicMinMax = VK_FALSE;
 
         // Vulkan memory model features
         VkPhysicalDeviceVulkanMemoryModelFeatures memoryModelFeatures;
