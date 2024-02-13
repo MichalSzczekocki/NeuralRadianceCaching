@@ -281,7 +281,7 @@ int main()
     en::AppConfig appConfig;
     appConfig.lossFn = "RelativeL2";
     appConfig.optimizer = "Adam";
-    appConfig.learningRate = 1e-3f;
+    appConfig.learningRate = 1e-6f;
 
     appConfig.dirLightStrength = 16.0f;
     appConfig.pointLightStrength = 0.0f;
