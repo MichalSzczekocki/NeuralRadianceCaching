@@ -142,7 +142,7 @@ int main()
                                                         {"n_levels", 16},
                                                         {"n_features_per_level", 2},
                                                         {"log2_hashmap_size", 19},
-                                                        {"base_resolution", 4},
+                                                        {"base_resolution", 16},
                                                         {"per_level_scale", 2.0},
                                                 },
                                                 {
@@ -161,7 +161,7 @@ int main()
                      }},
     };
 
-    en::NeuralRadianceCache nrc(config, 5, 3, 14);
+    en::NeuralRadianceCache nrc(config, 14);
 
     // Lighting
     en::DirLight dirLight(-1.57f, 0.0f, glm::vec3(1.0f), 1.5f);
@@ -253,6 +253,11 @@ int main()
 
         // Imgui
         en::ImGuiRenderer::StartFrame();
+        ImGui::Begin("Statistics");
+        ImGui::Text("DeltaTime %f", deltaTime);
+        ImGui::Text("FPS %d", fps);
+        ImGui::Text("NRC Loss %f", nrc.GetLoss());
+        ImGui::End();
 
         volumeData.RenderImGui();
         volumeData.Update(camera.HasChanged());
