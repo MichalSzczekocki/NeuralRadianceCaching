@@ -27,7 +27,7 @@ namespace en
 
         VolumeData(const vk::Texture3D* densityTex);
 
-        void Update(bool cameraChanged);
+        void Update();
         void Destroy();
 
         void RenderImGui();
@@ -46,5 +46,6 @@ namespace en
         vk::Buffer m_UniformBuffer;
 
         void UpdateDescriptorSet();
+
     };
 }
