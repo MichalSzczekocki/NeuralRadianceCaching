@@ -75,3 +75,26 @@ add_compile_definitions(TCNN_MIN_GPU_ARCH=86)
 add_subdirectory("dependencies/tiny-cuda-nn")
 target_include_directories(${PROJECT_NAME} PRIVATE "dependencies/tiny-cuda-nn/include" "dependencies/tiny-cuda-nn/dependencies")
 target_link_libraries(${PROJECT_NAME} PUBLIC ${CUDA_LIBRARIES} cuda cublas tiny-cuda-nn)
+
+find_package(Imath CONFIG)
+
+# First, try to find just the right config files
+find_package(Imath CONFIG)
+if (NOT TARGET Imath::Imath)
+    # Couldn't find Imath::Imath, maybe it's older and has IlmBase?
+    find_package(IlmBase CONFIG)
+endif ()
+#find_package(OpenEXR CONFIG)
+#target_link_libraries (${PROJECT_NAME} PRIVATE OpenEXR::OpenEXR)
+
+# TINYEXR
+find_package(tinyexr CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE unofficial::tinyexr::tinyexr)
+
+# OPENEXR
+#find_package(IlmBase CONFIG REQUIRED)
+#target_link_libraries(${PROJECT_NAME} PRIVATE IlmBase::Iex IlmBase::Half IlmBase::Imath IlmBase::IexMath)
+#find_package(OpenEXR CONFIG REQUIRED)
+#target_link_libraries(${PROJECT_NAME} PRIVATE OpenEXR::IlmImf OpenEXR::IlmImfUtil OpenEXR::IlmImfConfig)
+#find_package(OpenEXR CONFIG REQUIRED)
+#target_link_libraries(${PROJECT_NAME} PRIVATE OpenEXR::OpenEXR)

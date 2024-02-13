@@ -22,6 +22,7 @@
 #include <engine/util/Time.hpp>
 #include <engine/HpmScene.hpp>
 #include <engine/AppConfig.hpp>
+#include <filesystem>
 
 #include <cuda_runtime.h>
 #include <tiny-cuda-nn/config.h>
@@ -132,8 +133,8 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
 
     // Setup rendering
     en::Camera camera(
-            glm::vec3(0.0f, 0.0f, -64.0f),
-            glm::vec3(0.0f, 0.0f, 1.0f),
+            glm::vec3(64.0f, 0.0f, 0.0f),
+            glm::vec3(-1.0f, 0.0f, 0.0f),
             glm::vec3(0.0f, 1.0f, 0.0f),
             static_cast<float>(width) / static_cast<float>(height),
             glm::radians(60.0f),
@@ -221,6 +222,17 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
         swapchain.DrawAndPresent(VK_NULL_HANDLE, VK_NULL_HANDLE);
         frameCount++;
     }
+
+    // Evaluate at end
+    std::string outputDirPath = "output/ " + appConfig.GetName() + "/";
+    if (!std::filesystem::is_directory(outputDirPath) || std::filesystem::exists(outputDirPath))
+    {
+        std::filesystem::create_directory(outputDirPath);
+    }
+    std::string exrOutputFilePath =  outputDirPath + "1.exr";
+    hpmRenderer->ExportImageToFile(queue, exrOutputFilePath);
+
+    // Stop gpu work
     result = vkDeviceWaitIdle(device);
     ASSERT_VULKAN(result);
 

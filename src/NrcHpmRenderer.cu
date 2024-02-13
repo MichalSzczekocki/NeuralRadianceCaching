@@ -10,6 +10,9 @@
 #include <engine/util/Log.hpp>
 #include <engine/graphics/vulkan/CommandRecorder.hpp>
 
+#define TINYEXR_IMPLEMENTATION
+#include <tinyexr.h>
+
 #define ASSERT_CUDA(error) if (error != cudaSuccess) { en::Log::Error("Cuda assert triggered: " + std::string(cudaGetErrorName(error)), true); }
 
 namespace en
@@ -198,9 +201,10 @@ namespace en
                 m_CuExtCudaStartSemaphore,
                 m_CuExtCudaFinishedSemaphore);
 
-        m_CommandPool.AllocateBuffers(2, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        m_CommandPool.AllocateBuffers(3, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         m_PreCudaCommandBuffer = m_CommandPool.GetBuffer(0);
         m_PostCudaCommandBuffer = m_CommandPool.GetBuffer(1);
+        m_RandomTasksCmdBuf = m_CommandPool.GetBuffer(2);
 
         CreatePipelineLayout(device);
 
@@ -327,6 +331,63 @@ namespace en
     VkImageView NrcHpmRenderer::GetImageView() const
     {
         return m_OutputImageView;
+    }
+
+    void NrcHpmRenderer::ExportImageToFile(VkQueue queue, const std::string& filePath) const
+    {
+        const size_t floatCount = m_RenderWidth * m_RenderHeight * 4;
+        const size_t bufferSize = floatCount * sizeof(float);
+
+        vk::Buffer vkBuffer(
+                bufferSize,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                {});
+
+        VkCommandBufferBeginInfo cmdBufBI;
+        cmdBufBI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        cmdBufBI.pNext = nullptr;
+        cmdBufBI.flags = 0;
+        cmdBufBI.pInheritanceInfo = nullptr;
+        ASSERT_VULKAN(vkBeginCommandBuffer(m_RandomTasksCmdBuf, &cmdBufBI));
+
+        VkBufferImageCopy region;
+        region.bufferOffset = 0;
+        region.bufferRowLength = m_RenderWidth;
+        region.bufferImageHeight = m_RenderHeight;
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        region.imageOffset = { 0, 0, 0 };
+        region.imageExtent = { m_RenderWidth, m_RenderHeight, 1 };
+
+        vkCmdCopyImageToBuffer(m_RandomTasksCmdBuf, m_OutputImage, VK_IMAGE_LAYOUT_GENERAL, vkBuffer.GetVulkanHandle(), 1, &region);
+
+        ASSERT_VULKAN(vkEndCommandBuffer(m_RandomTasksCmdBuf));
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_RandomTasksCmdBuf;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+
+        ASSERT_VULKAN(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+        ASSERT_VULKAN(vkQueueWaitIdle(queue));
+
+        std::vector<float> buffer(floatCount);
+        vkBuffer.GetData(bufferSize, buffer.data(), 0, 0);
+        vkBuffer.Destroy();
+
+        if (TINYEXR_SUCCESS != SaveEXR(buffer.data(), m_RenderWidth, m_RenderHeight, 4, 0, filePath.c_str(), nullptr))
+        {
+            en::Log::Error("TINYEXR Error", true);
+        }
     }
 
     void NrcHpmRenderer::CreateSyncObjects(VkDevice device)
@@ -630,7 +691,7 @@ namespace en
         imageCI.arrayLayers = 1;
         imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
         imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         imageCI.queueFamilyIndexCount = 0;
         imageCI.pQueueFamilyIndices = nullptr;
@@ -685,11 +746,11 @@ namespace en
         beginInfo.flags = 0;
         beginInfo.pInheritanceInfo = nullptr;
 
-        result = vkBeginCommandBuffer(m_PreCudaCommandBuffer, &beginInfo);
+        result = vkBeginCommandBuffer(m_RandomTasksCmdBuf, &beginInfo);
         ASSERT_VULKAN(result);
 
         vk::CommandRecorder::ImageLayoutTransfer(
-                m_PreCudaCommandBuffer,
+                m_RandomTasksCmdBuf,
                 m_OutputImage,
                 VK_IMAGE_LAYOUT_PREINITIALIZED,
                 VK_IMAGE_LAYOUT_GENERAL,
@@ -698,7 +759,7 @@ namespace en
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-        result = vkEndCommandBuffer(m_PreCudaCommandBuffer);
+        result = vkEndCommandBuffer(m_RandomTasksCmdBuf);
         ASSERT_VULKAN(result);
 
         VkSubmitInfo submitInfo;
@@ -708,7 +769,7 @@ namespace en
         submitInfo.pWaitSemaphores = nullptr;
         submitInfo.pWaitDstStageMask = nullptr;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_PreCudaCommandBuffer;
+        submitInfo.pCommandBuffers = &m_RandomTasksCmdBuf;
         submitInfo.signalSemaphoreCount = 0;
         submitInfo.pSignalSemaphores = nullptr;
 
@@ -790,11 +851,11 @@ namespace en
         beginInfo.flags = 0;
         beginInfo.pInheritanceInfo = nullptr;
 
-        result = vkBeginCommandBuffer(m_PreCudaCommandBuffer, &beginInfo);
+        result = vkBeginCommandBuffer(m_RandomTasksCmdBuf, &beginInfo);
         ASSERT_VULKAN(result);
 
         vk::CommandRecorder::ImageLayoutTransfer(
-                m_PreCudaCommandBuffer,
+                m_RandomTasksCmdBuf,
                 m_PrimaryRayColorImage,
                 VK_IMAGE_LAYOUT_PREINITIALIZED,
                 VK_IMAGE_LAYOUT_GENERAL,
@@ -803,7 +864,7 @@ namespace en
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-        result = vkEndCommandBuffer(m_PreCudaCommandBuffer);
+        result = vkEndCommandBuffer(m_RandomTasksCmdBuf);
         ASSERT_VULKAN(result);
 
         VkSubmitInfo submitInfo;
@@ -813,7 +874,7 @@ namespace en
         submitInfo.pWaitSemaphores = nullptr;
         submitInfo.pWaitDstStageMask = nullptr;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_PreCudaCommandBuffer;
+        submitInfo.pCommandBuffers = &m_RandomTasksCmdBuf;
         submitInfo.signalSemaphoreCount = 0;
         submitInfo.pSignalSemaphores = nullptr;
 
@@ -895,11 +956,11 @@ namespace en
         beginInfo.flags = 0;
         beginInfo.pInheritanceInfo = nullptr;
 
-        result = vkBeginCommandBuffer(m_PreCudaCommandBuffer, &beginInfo);
+        result = vkBeginCommandBuffer(m_RandomTasksCmdBuf, &beginInfo);
         ASSERT_VULKAN(result);
 
         vk::CommandRecorder::ImageLayoutTransfer(
-                m_PreCudaCommandBuffer,
+                m_RandomTasksCmdBuf,
                 m_PrimaryRayInfoImage,
                 VK_IMAGE_LAYOUT_PREINITIALIZED,
                 VK_IMAGE_LAYOUT_GENERAL,
@@ -908,7 +969,7 @@ namespace en
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-        result = vkEndCommandBuffer(m_PreCudaCommandBuffer);
+        result = vkEndCommandBuffer(m_RandomTasksCmdBuf);
         ASSERT_VULKAN(result);
 
         VkSubmitInfo submitInfo;
@@ -918,7 +979,7 @@ namespace en
         submitInfo.pWaitSemaphores = nullptr;
         submitInfo.pWaitDstStageMask = nullptr;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_PreCudaCommandBuffer;
+        submitInfo.pCommandBuffers = &m_RandomTasksCmdBuf;
         submitInfo.signalSemaphoreCount = 0;
         submitInfo.pSignalSemaphores = nullptr;
 
@@ -1000,11 +1061,11 @@ namespace en
         beginInfo.flags = 0;
         beginInfo.pInheritanceInfo = nullptr;
 
-        result = vkBeginCommandBuffer(m_PreCudaCommandBuffer, &beginInfo);
+        result = vkBeginCommandBuffer(m_RandomTasksCmdBuf, &beginInfo);
         ASSERT_VULKAN(result);
 
         vk::CommandRecorder::ImageLayoutTransfer(
-                m_PreCudaCommandBuffer,
+                m_RandomTasksCmdBuf,
                 m_NrcRayOriginImage,
                 VK_IMAGE_LAYOUT_PREINITIALIZED,
                 VK_IMAGE_LAYOUT_GENERAL,
@@ -1013,7 +1074,7 @@ namespace en
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-        result = vkEndCommandBuffer(m_PreCudaCommandBuffer);
+        result = vkEndCommandBuffer(m_RandomTasksCmdBuf);
         ASSERT_VULKAN(result);
 
         VkSubmitInfo submitInfo;
@@ -1023,7 +1084,7 @@ namespace en
         submitInfo.pWaitSemaphores = nullptr;
         submitInfo.pWaitDstStageMask = nullptr;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_PreCudaCommandBuffer;
+        submitInfo.pCommandBuffers = &m_RandomTasksCmdBuf;
         submitInfo.signalSemaphoreCount = 0;
         submitInfo.pSignalSemaphores = nullptr;
 
@@ -1105,11 +1166,11 @@ namespace en
         beginInfo.flags = 0;
         beginInfo.pInheritanceInfo = nullptr;
 
-        result = vkBeginCommandBuffer(m_PreCudaCommandBuffer, &beginInfo);
+        result = vkBeginCommandBuffer(m_RandomTasksCmdBuf, &beginInfo);
         ASSERT_VULKAN(result);
 
         vk::CommandRecorder::ImageLayoutTransfer(
-                m_PreCudaCommandBuffer,
+                m_RandomTasksCmdBuf,
                 m_NrcRayDirImage,
                 VK_IMAGE_LAYOUT_PREINITIALIZED,
                 VK_IMAGE_LAYOUT_GENERAL,
@@ -1118,7 +1179,7 @@ namespace en
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-        result = vkEndCommandBuffer(m_PreCudaCommandBuffer);
+        result = vkEndCommandBuffer(m_RandomTasksCmdBuf);
         ASSERT_VULKAN(result);
 
         VkSubmitInfo submitInfo;
@@ -1128,7 +1189,7 @@ namespace en
         submitInfo.pWaitSemaphores = nullptr;
         submitInfo.pWaitDstStageMask = nullptr;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_PreCudaCommandBuffer;
+        submitInfo.pCommandBuffers = &m_RandomTasksCmdBuf;
         submitInfo.signalSemaphoreCount = 0;
         submitInfo.pSignalSemaphores = nullptr;
 
@@ -1406,13 +1467,6 @@ namespace en
         const std::vector<VkDescriptorSet>& hpmSceneDescSets = m_HpmScene.GetDescriptorSets();
         descSets.insert(descSets.end(), hpmSceneDescSets.begin(), hpmSceneDescSets.end());
         descSets.push_back(m_DescSet);
-
-        // Create memory barrier
-        VkMemoryBarrier memoryBarrier;
-        memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        memoryBarrier.pNext = nullptr;
-        memoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-        memoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 
         // Bind descriptor sets
         vkCmdBindDescriptorSets(

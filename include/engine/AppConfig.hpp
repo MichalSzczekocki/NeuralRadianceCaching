@@ -52,6 +52,8 @@ namespace en
         AppConfig();
         AppConfig(int argc, char** argv);
 
+        std::string GetName() const;
+
         void RenderImGui() const;
     };
 }
