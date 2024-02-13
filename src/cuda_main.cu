@@ -23,6 +23,7 @@
 #include <engine/HpmScene.hpp>
 #include <engine/AppConfig.hpp>
 #include <filesystem>
+#include <engine/graphics/renderer/McHpmRenderer.hpp>
 
 #include <cuda_runtime.h>
 #include <tiny-cuda-nn/config.h>
@@ -30,7 +31,9 @@
 
 #define ASSERT_CUDA(error) if (error != cudaSuccess) { en::Log::Error("Cuda assert triggered: " + std::string(cudaGetErrorName(error)), true); }
 
-en::NrcHpmRenderer* hpmRenderer = nullptr;
+#define NRC
+en::NrcHpmRenderer* nrcHpmRenderer = nullptr;
+en::McHpmRenderer* mcHpmRenderer = nullptr;
 
 void RecordSwapchainCommandBuffer(VkCommandBuffer commandBuffer, VkImage image)
 {
@@ -57,7 +60,7 @@ void RecordSwapchainCommandBuffer(VkCommandBuffer commandBuffer, VkImage image)
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-    if (hpmRenderer != nullptr && en::ImGuiRenderer::IsInitialized())
+    if (nrcHpmRenderer != nullptr && mcHpmRenderer != nullptr && en::ImGuiRenderer::IsInitialized())
     {
         VkImageCopy imageCopy;
         imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -103,12 +106,6 @@ void SwapchainResizeCallback()
     vkDeviceWaitIdle(en::VulkanAPI::GetDevice()); // TODO: causes error with multithreaded rendering
 
     en::Log::Info("Skipping swapchain resize callback");
-
-    //uint32_t width = en::Window::GetWidth();
-    //uint32_t height = en::Window::GetHeight();
-    //nrcHpmRenderer->ResizeFrame(width, height);
-    //en::ImGuiRenderer::Resize(width, height);
-    //en::ImGuiRenderer::SetBackgroundImageView(imageView);
 }
 
 bool RunAppConfigInstance(const en::AppConfig& appConfig)
@@ -144,7 +141,7 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     // Init rendering pipeline
     en::vk::Swapchain swapchain(width, height, RecordSwapchainCommandBuffer, SwapchainResizeCallback);
 
-    hpmRenderer = new en::NrcHpmRenderer(
+    nrcHpmRenderer = new en::NrcHpmRenderer(
             width,
             height,
             0.05f,
@@ -153,8 +150,16 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
             hpmScene,
             nrc);
 
+    mcHpmRenderer = new en::McHpmRenderer(width, height, 1, camera, hpmScene);
+
     en::ImGuiRenderer::Init(width, height);
-    en::ImGuiRenderer::SetBackgroundImageView(hpmRenderer->GetImageView());
+    en::ImGuiRenderer::SetBackgroundImageView(
+#ifdef NRC
+            nrcHpmRenderer->GetImageView()
+#else
+            mcHpmRenderer->GetImageView()
+#endif
+    );
 
     // Swapchain rerecording because imgui renderer is now available
     swapchain.Resize(width, height);
@@ -194,10 +199,17 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
         camera.UpdateUniformBuffer();
 
         // Render
-        hpmRenderer->Render(queue);
+#ifdef NRC
+        nrcHpmRenderer->Render(queue);
         result = vkQueueWaitIdle(queue);
         ASSERT_VULKAN(result);
-        hpmRenderer->EvaluateTimestampQueries();
+        nrcHpmRenderer->EvaluateTimestampQueries();
+#else
+        mcHpmRenderer->Render(queue);
+		result = vkQueueWaitIdle(queue);
+		ASSERT_VULKAN(result);
+		mcHpmRenderer->EvaluateTimestampQueries();
+#endif
 
         // Imgui
         en::ImGuiRenderer::StartFrame();
@@ -233,15 +245,22 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
         std::filesystem::create_directory(outputDirPath);
     }
     std::string exrOutputFilePath =  outputDirPath + "1.exr";
-    hpmRenderer->ExportImageToFile(queue, exrOutputFilePath);
+#ifdef NRC
+    nrcHpmRenderer->ExportImageToFile(queue, exrOutputFilePath);
+#else
+    mcHpmRenderer->ExportImageToFile(queue, exrOutputFilePath);
+#endif
 
     // Stop gpu work
     result = vkDeviceWaitIdle(device);
     ASSERT_VULKAN(result);
 
     // End
-    hpmRenderer->Destroy();
-    delete hpmRenderer;
+    mcHpmRenderer->Destroy();
+    delete mcHpmRenderer;
+
+    nrcHpmRenderer->Destroy();
+    delete nrcHpmRenderer;
 
     en::ImGuiRenderer::Shutdown();
 

@@ -1498,6 +1498,8 @@ namespace en
 
     void NrcHpmRenderer::RecordPreCudaCommandBuffer()
     {
+        m_QueryIndex = 0;
+
         // Begin
         VkCommandBufferBeginInfo beginInfo;
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
