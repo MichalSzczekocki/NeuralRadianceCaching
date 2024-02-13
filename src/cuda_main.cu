@@ -159,6 +159,8 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     // Swapchain rerecording because imgui renderer is now available
     swapchain.Resize(width, height);
 
+    en::Log::Info(std::to_string(en::VulkanAPI::GetTimestampPeriod()));
+
     // Main loop
     VkResult result;
     size_t frameCount = 0;
@@ -195,6 +197,7 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
         hpmRenderer->Render(queue);
         result = vkQueueWaitIdle(queue);
         ASSERT_VULKAN(result);
+        hpmRenderer->EvaluateTimestampQueries();
 
         // Imgui
         en::ImGuiRenderer::StartFrame();
