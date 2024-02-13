@@ -165,6 +165,9 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     bool restartAfterClose = false;
     while (!en::Window::IsClosed() && !shutdown)
     {
+        // Exit
+        if (frameCount == 1000) { break; }
+
         // Update
         en::Window::Update();
         en::Input::Update();
@@ -195,6 +198,7 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
         // Imgui
         en::ImGuiRenderer::StartFrame();
         ImGui::Begin("Statistics");
+        ImGui::Text((std::string("Framecount ") + std::to_string(frameCount)).c_str());
         ImGui::Text("DeltaTime %f", deltaTime);
         ImGui::Text("FPS %d", fps);
         ImGui::Text("NRC Loss %f", nrc.GetLoss());
