@@ -9,9 +9,7 @@ namespace en
     class NeuralRadianceCache
     {
     public:
-        NeuralRadianceCache(
-                const nlohmann::json& config,
-                uint32_t log2BatchSize);
+        NeuralRadianceCache(const nlohmann::json& config, uint32_t log2BatchSize);
 
         void Init(
                 uint32_t inferCount,
@@ -44,6 +42,7 @@ namespace en
         cudaExternalSemaphore_t m_CudaFinishedSemaphore;
 
         float m_Loss = 0.0f;
+        size_t m_TrainCounter = 0;
 
         void Inference();
         void Train();

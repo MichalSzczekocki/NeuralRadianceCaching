@@ -28,9 +28,9 @@ void StoreNrcTrainData(const ivec2 trainImageCoord, const vec3 pos, const vec3 d
     nrcTrainInput[linearPixelIndex].phi = normPhi;
 
     // Store train target
-    nrcTrainTarget[linearPixelIndex].r = max(0.0, min(10.0, target.x));
-    nrcTrainTarget[linearPixelIndex].g = max(0.0, min(10.0, target.y));
-    nrcTrainTarget[linearPixelIndex].b = max(0.0, min(10.0, target.z));
+    nrcTrainTarget[linearPixelIndex].r = min(32.0, target.x);
+    nrcTrainTarget[linearPixelIndex].g = min(32.0, target.y);
+    nrcTrainTarget[linearPixelIndex].b = min(32.0, target.z);
 }
 
 #define PATH_SAMPLE_COUNT 32
@@ -47,6 +47,7 @@ vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir)
     vec3 currentDir = rayDir;
     vec3 lastDir = vec3(0.0);
 
+    bool volumeExit = false;
     for (uint i = 0; i < PATH_SAMPLE_COUNT; i++)
     {
         const float density = getDensity(currentPoint);
@@ -75,10 +76,11 @@ vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir)
         }
 
         // Generate new point
-        const vec3 exit = find_entry_exit(currentPoint, currentDir)[1];
-        const float maxDistance = distance(exit, currentPoint) * 0.1;
-        const float nextDistance = RandFloat(maxDistance);
-        currentPoint = currentPoint + (currentDir * nextDistance);
+        currentPoint = DeltaTrack(currentPoint, currentDir, volumeExit);
+        //const vec3 exit = find_entry_exit(currentPoint, currentDir)[1];
+        //const float maxDistance = distance(exit, currentPoint) * 0.1;
+        //const float nextDistance = RandFloat(maxDistance);
+        //currentPoint = currentPoint + (currentDir * nextDistance);
     }
 
     return vec4(scatteredLight, transmittance);
@@ -91,9 +93,19 @@ void main()
     const ivec2 trainImageCoord = ivec2(x, y);
     const ivec2 renderImageCoord = trainImageCoord * ivec2(RENDER_OVER_TRAIN_WIDTH, RENDER_OVER_TRAIN_HEIGHT);
 
+    // Setup random
+    preRand = volumeData.random.x * float(x) * ONE_OVER_RENDER_WIDTH;
+    prePreRand = volumeData.random.y * float(y) * ONE_OVER_RENDER_WIDTH;
+
     const vec3 rayOrigin = imageLoad(nrcRayOriginImage, renderImageCoord).xyz;
     const vec3 rayDir = imageLoad(nrcRayDirImage, renderImageCoord).xyz;
-    const vec3 target = TracePath(rayOrigin, rayDir).xyz;
+
+    vec3 target = vec3(0.0);
+    for (uint i = 0; i < TRAIN_SPP; i++)
+    {
+        target += TracePath(rayOrigin, rayDir).xyz;
+    }
+    target /= float(TRAIN_SPP);
 
     StoreNrcTrainData(trainImageCoord, rayOrigin, rayDir, target);
 }

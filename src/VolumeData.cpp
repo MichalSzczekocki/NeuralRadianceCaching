@@ -83,7 +83,7 @@ namespace en
                                   .random = glm::vec4(0.0f),
                                   .useNN = 0,
                                   .showNonNN = 0,
-                                  .densityFactor = 0.2f,
+                                  .densityFactor = 0.3f,
                                   .g = 0.7f,
                                   .noNnSpp = 1,
                                   .withNnSpp = 1 })
@@ -100,6 +100,7 @@ namespace en
         ASSERT_VULKAN(result);
 
         UpdateDescriptorSet();
+        Update();
     }
 
     void VolumeData::Update()

@@ -21,6 +21,7 @@
 #include <engine/util/Input.hpp>
 #include <engine/util/Time.hpp>
 #include <engine/HpmScene.hpp>
+#include <engine/AppConfig.hpp>
 
 #include <cuda_runtime.h>
 #include <tiny-cuda-nn/config.h>
@@ -109,16 +110,17 @@ void SwapchainResizeCallback()
     //en::ImGuiRenderer::SetBackgroundImageView(imageView);
 }
 
-int main()
+bool RunAppConfigInstance(const en::AppConfig& appConfig)
 {
     // Start engine
     const std::string appName("NeuralRadianceCaching");
-    uint32_t width = 1024; // Multiple of 128 for nrc batch size
-    uint32_t height = width;
+    uint32_t width = appConfig.renderWidth;
+    uint32_t height = appConfig.renderHeight;
     en::Log::Info("Starting " + appName);
     en::Window::Init(width, height, false, appName);
     en::Input::Init(en::Window::GetGLFWHandle());
     en::VulkanAPI::Init(appName);
+
     const VkDevice device = en::VulkanAPI::GetDevice();
     const uint32_t qfi = en::VulkanAPI::GetGraphicsQFI();
     const VkQueue queue = en::VulkanAPI::GetGraphicsQueue();
@@ -126,45 +128,45 @@ int main()
     // Init nrc
     nlohmann::json config = {
             {"loss", {
-                             {"otype", "RelativeL2"}
+                             {"otype", appConfig.lossFn}
                      }},
             {"optimizer", {
-                             {"otype", "Adam"},
-                             {"learning_rate", 1e-5},
-                             {"relative_decay", 0.0}
+                             {"otype", appConfig.optimizer},
+                             {"learning_rate", appConfig.learningRate},
+//                             {"clipping_magnitude", 0.1}
                      }},
             {"encoding", {
                              {"otype", "Composite"},
                              {"reduction", "Concatenation"},
                              {"nested", {
-                                                {
-                                                        {"otype", "HashGrid"},
-                                                        {"n_dims_to_encode", 3},
-                                                        {"n_levels", 16},
-                                                        {"n_features_per_level", 2},
-                                                        {"log2_hashmap_size", 19},
-                                                        {"base_resolution", 16},
-                                                        {"per_level_scale", 2.0},
-                                                },
-                                                {
-                                                        {"otype", "OneBlob"},
-                                                        {"n_dims_to_encode", 2},
-                                                        {"n_bins", 4},
-                                                },
-                                        }},
+                                                            {
+                                                                    {"otype", "HashGrid"},
+                                                                    {"n_dims_to_encode", 3},
+                                                                    {"n_levels", 16},
+                                                                    {"n_features_per_level", 2},
+                                                                    {"log2_hashmap_size", 19},
+                                                                    {"base_resolution", 16},
+                                                                    {"per_level_scale", 2.0},
+                                                            },
+                                                            {
+                                                                    {"otype", "OneBlob"},
+                                                                    {"n_dims_to_encode", 2},
+                                                                    {"n_bins", 4},
+                                                            },
+                                                    }},
                      }},
             {"network", {
                              {"otype", "FullyFusedMLP"},
                              {"activation", "ReLU"},
                              {"output_activation", "None"},
-                             {"n_neurons", 128},
-                             {"n_hidden_layers", 6},
+                             {"n_neurons", appConfig.nnWidth},
+                             {"n_hidden_layers", appConfig.nnDepth},
                      }},
     };
 
     en::NeuralRadianceCache nrc(config, 14);
 
-    en::HpmScene hpmScene;
+    en::HpmScene hpmScene(appConfig);
 
     // Setup rendering
     en::Camera camera(
@@ -183,7 +185,7 @@ int main()
             width,
             height,
             0.05f,
-
+            1,
             camera,
             hpmScene,
             nrc);
@@ -197,7 +199,9 @@ int main()
     // Main loop
     VkResult result;
     size_t frameCount = 0;
-    while (!en::Window::IsClosed())
+    bool shutdown = false;
+    bool restartAfterClose = false;
+    while (!en::Window::IsClosed() && !shutdown)
     {
         // Update
         en::Window::Update();
@@ -234,6 +238,11 @@ int main()
         ImGui::Text("NRC Loss %f", nrc.GetLoss());
         ImGui::End();
 
+        ImGui::Begin("Controls");
+        shutdown = ImGui::Button("Shutdown");
+        ImGui::Checkbox("Restart after shutdown", &restartAfterClose);
+        ImGui::End();
+
         hpmScene.Update(true);
 
         en::ImGuiRenderer::EndFrame(queue, VK_NULL_HANDLE);
@@ -248,16 +257,49 @@ int main()
     ASSERT_VULKAN(result);
 
     // End
-    hpmScene.Destroy();
+    hpmRenderer->Destroy();
+    delete hpmRenderer;
 
     en::ImGuiRenderer::Shutdown();
 
     swapchain.Destroy(true);
 
+    hpmScene.Destroy();
+    camera.Destroy();
+    nrc.Destroy();
+
     en::VulkanAPI::Shutdown();
     en::Window::Shutdown();
 
     en::Log::Info("Ending " + appName);
+
+    return restartAfterClose;
+}
+
+int main()
+{
+    en::AppConfig appConfig;
+    appConfig.lossFn = "RelativeL2";
+    appConfig.optimizer = "Adam";
+    appConfig.learningRate = 1e-3f;
+
+    appConfig.dirLightStrength = 16.0f;
+    appConfig.pointLightStrength = 0.0f;
+    appConfig.hdrEnvMapPath = "data/image/photostudio.hdr";
+    appConfig.hdrEnvMapDirectStrength = 1.0f;
+    appConfig.hdrEnvMapHpmStrength = 0.0f;
+
+    appConfig.renderWidth = 1920;
+    appConfig.renderHeight = 1080;
+    appConfig.trainSampleRatio = 0.05f;
+    appConfig.trainSpp = 1;
+    appConfig.nnWidth = 128;
+    appConfig.nnDepth = 6;
+
+    bool restartRunConfig;
+    do {
+        restartRunConfig = RunAppConfigInstance(appConfig);
+    } while (restartRunConfig);
 
     return 0;
 }

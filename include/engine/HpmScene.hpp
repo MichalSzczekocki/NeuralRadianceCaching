@@ -6,32 +6,33 @@
 #include <engine/graphics/HdrEnvMap.hpp>
 #include <engine/graphics/vulkan/Texture3D.hpp>
 #include <engine/objects/VolumeData.hpp>
+#include <engine/AppConfig.hpp>
 
 namespace en
 {
-	class HpmScene
-	{
-	public:
-		static const std::vector<VkDescriptorSetLayout>& GetDescriptorSetLayout();
-		
-		HpmScene();
-		
-		void Update(bool renderImgui);
+    class HpmScene
+    {
+    public:
+        static const std::vector<VkDescriptorSetLayout>& GetDescriptorSetLayout();
 
-		void Destroy();
+        HpmScene(const AppConfig& appConfig);
 
-		const std::vector<VkDescriptorSet>& GetDescriptorSets() const;
+        void Update(bool renderImgui);
 
-	private:
-		static std::vector<VkDescriptorSetLayout> s_DescriptorSetLayout;
+        void Destroy();
 
-		DirLight* m_DirLight = nullptr;
-		PointLight* m_PointLight = nullptr;
-		HdrEnvMap* m_HdrEnvMap = nullptr;
+        const std::vector<VkDescriptorSet>& GetDescriptorSets() const;
 
-		vk::Texture3D* m_Density3DTex = nullptr;
-		VolumeData* m_VolumeData = nullptr;
+    private:
+        static std::vector<VkDescriptorSetLayout> s_DescriptorSetLayout;
 
-		std::vector<VkDescriptorSet> m_DescSets;
-	};
+        DirLight* m_DirLight = nullptr;
+        PointLight* m_PointLight = nullptr;
+        HdrEnvMap* m_HdrEnvMap = nullptr;
+
+        vk::Texture3D* m_Density3DTex = nullptr;
+        VolumeData* m_VolumeData = nullptr;
+
+        std::vector<VkDescriptorSet> m_DescSets;
+    };
 }
