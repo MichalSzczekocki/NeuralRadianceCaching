@@ -39,7 +39,7 @@ vec4 TracePath(const ivec2 imageCoord, const vec3 rayOrigin, const vec3 rayDir, 
                 // Return prematurly terminated ray color
                 return vec4(scatteredLight, transmittance);
             }
-            totalTermProb *= 0.5;
+            totalTermProb *= 0.1;
 
             // Get scene lighting
             const vec3 sceneLighting = TraceScene(currentPoint, currentDir);
@@ -83,8 +83,8 @@ void main()
     const vec3 pixelWorldPos = worldPos.xyz / worldPos.w;
 
     // Setup random
-    preRand = volumeData.random.x * fragUV.x;
-    prePreRand = volumeData.random.y * fragUV.y;
+    preRand = random.x * fragUV.x;
+    prePreRand = random.y * fragUV.y;
 
     // Setup ray
     const vec3 ro = camera.pos;
@@ -100,7 +100,7 @@ void main()
     bool didScatter = false;
     if (sky_sdf(entry) > MAX_RAY_DISTANCE)
     {
-        primaryRayColor = vec4(SampleHdrEnvMap(rd, false), 1.0);
+        primaryRayColor = vec4(SampleHdrEnvMap(rd), 1.0);
         primaryRayInfo = vec4(0.0);
     }
     else
@@ -108,7 +108,7 @@ void main()
         primaryRayColor = TracePath(imageCoord, ro, rd, didScatter);
         if (!didScatter)
         {
-            primaryRayColor = vec4(SampleHdrEnvMap(rd, false), 1.0);
+            primaryRayColor = vec4(SampleHdrEnvMap(rd), 1.0);
         }
     }
 
