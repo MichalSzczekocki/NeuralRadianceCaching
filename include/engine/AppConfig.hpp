@@ -2,30 +2,52 @@
 
 #include <string>
 #include <glm/glm.hpp>
+#include <json/json.hpp>
 
 namespace en
 {
-	struct AppConfig
-	{
-		// nn
-		std::string lossFn;
-		std::string optimizer;
-		float learningRate;
-		// TODO: encoding
-		uint32_t nnWidth;
-		uint32_t nnDepth;
+    struct AppConfig
+    {
+        struct NNEncodingConfig
+        {
+            // TODO
+            nlohmann::json jsonConfig;
 
-		// scene
-		float dirLightStrength;
-		float pointLightStrength;
-		std::string hdrEnvMapPath;
-		float hdrEnvMapDirectStrength;
-		float hdrEnvMapHpmStrength;
+            NNEncodingConfig();
+            NNEncodingConfig(uint32_t id);
+        };
 
-		// renderer
-		uint32_t renderWidth;
-		uint32_t renderHeight;
-		float trainSampleRatio;
-		uint32_t trainSpp;
-	};
+        struct HpmSceneConfig
+        {
+            float dirLightStrength;
+            float pointLightStrength;
+            std::string hdrEnvMapPath;
+            float hdrEnvMapDirectStrength;
+            float hdrEnvMapHpmStrength;
+
+            HpmSceneConfig();
+            HpmSceneConfig(uint32_t id);
+        };
+
+        // nn
+        std::string lossFn;
+        std::string optimizer;
+        float learningRate;
+        NNEncodingConfig encoding;
+        uint32_t nnWidth;
+        uint32_t nnDepth;
+        uint32_t log2BatchSize;
+
+        // scene
+        HpmSceneConfig scene;
+
+        // renderer
+        uint32_t renderWidth;
+        uint32_t renderHeight;
+        float trainSampleRatio;
+        uint32_t trainSpp;
+
+        AppConfig();
+        AppConfig(int argc, char** argv);
+    };
 }
