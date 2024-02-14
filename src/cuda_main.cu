@@ -224,8 +224,8 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
 {
     // Start engine
     const std::string appName("NeuralRadianceCaching");
-    uint32_t width = appConfig.renderWidth;
-    uint32_t height = appConfig.renderHeight;
+    uint32_t width = 1920;
+    uint32_t height = 1080;
     en::Log::Info("Starting " + appName);
 
     en::Window::Init(width, height, false, appName);
@@ -477,11 +477,11 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
         if (en::Window::IsSupported()) { swapchain->DrawAndPresent(VK_NULL_HANDLE, VK_NULL_HANDLE); }
 
         // Check loss
-        if (benchmark && frameCount % 100 == 0)
-        {
-            en::Log::Info("Frame: " + std::to_string(frameCount));
-            Benchmark(appConfig.renderWidth, appConfig.renderHeight, appConfig.scene.id, appConfig, hpmScene, &camera, queue);
-        }
+//        if (benchmark && frameCount % 100 == 0)
+//        {
+//            en::Log::Info("Frame: " + std::to_string(frameCount));
+//            Benchmark(appConfig.renderWidth, appConfig.renderHeight, appConfig.scene.id, appConfig, hpmScene, &camera, queue);
+//        }
 
         //
         frameCount++;
@@ -554,7 +554,10 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
 
 int main(int argc, char** argv)
 {
-    en::AppConfig appConfig(argc, argv);
+    std::vector<char*> myargv(argc);
+    std::memcpy(myargv.data(), argv, sizeof(char*) * argc);
+    myargv = { "NeuralRadianceCaching", "RelativeL2", "Adam", "0.001", "0", "0", "128", "6", "14", "0", "0.02", "1"};
+    en::AppConfig appConfig(myargv);
 
     bool restartRunConfig;
     do {
