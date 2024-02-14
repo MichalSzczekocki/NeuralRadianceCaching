@@ -176,20 +176,31 @@ void Benchmark(
     }
 
     // Test frame
+    const bool prevNrcBlend = nrcHpmRenderer->IsBlending();
+    const bool prevMcBlend = mcHpmRenderer->IsBlending();
+    nrcHpmRenderer->SetBlend(true);
+    mcHpmRenderer->SetBlend(true);
+
     std::array<float, testCameras.size()> nrcMseLosses;
     std::array<float, testCameras.size()> mcMseLosses;
     for (size_t i = 0; i < testCameras.size(); i++)
     {
         nrcHpmRenderer->SetCamera(queue, testCameras[i]);
-        nrcHpmRenderer->Render(queue);
-        ASSERT_VULKAN(vkQueueWaitIdle(queue));
-        nrcMseLosses[i] = nrcHpmRenderer->CompareReferenceMSE(queue, gtImages[i]);
-
         mcHpmRenderer->SetCamera(queue, testCameras[i]);
-        mcHpmRenderer->Render(queue);
-        ASSERT_VULKAN(vkQueueWaitIdle(queue));
+        for (size_t frame = 0; frame < 1; frame++)
+        {
+            nrcHpmRenderer->Render(queue);
+            ASSERT_VULKAN(vkQueueWaitIdle(queue));
+
+            mcHpmRenderer->Render(queue);
+            ASSERT_VULKAN(vkQueueWaitIdle(queue));
+        }
+        nrcMseLosses[i] = nrcHpmRenderer->CompareReferenceMSE(queue, gtImages[i]);
         mcMseLosses[i] = mcHpmRenderer->CompareReferenceMSE(queue, gtImages[i]);
     }
+
+    nrcHpmRenderer->SetBlend(prevNrcBlend);
+    mcHpmRenderer->SetBlend(prevMcBlend);
 
     // Calculate total loss
     float nrcMSE = 0.0f;
