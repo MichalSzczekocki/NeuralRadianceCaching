@@ -1,0 +1,7 @@
+/cmake-build-debug
+/cmake-build-default
+/data
+/output
+
+imgui.ini
+vcpkg.json
