@@ -25,6 +25,7 @@
 #include <filesystem>
 #include <engine/graphics/renderer/McHpmRenderer.hpp>
 #include <tinyexr.h>
+#include <engine/graphics/vulkan/CommandPool.hpp>
 
 #include <cuda_runtime.h>
 #include <tiny-cuda-nn/config.h>
@@ -220,10 +221,10 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     uint32_t width = appConfig.renderWidth;
     uint32_t height = appConfig.renderHeight;
     en::Log::Info("Starting " + appName);
-    en::Window::Init(width, height, false, appName);
-    en::Input::Init(en::Window::GetGLFWHandle());
-    en::VulkanAPI::Init(appName);
 
+    en::Window::Init(width, height, false, appName);
+    if (en::Window::IsSupported()) { en::Input::Init(en::Window::GetGLFWHandle()); }
+    en::VulkanAPI::Init(appName);
     const VkDevice device = en::VulkanAPI::GetDevice();
     const uint32_t qfi = en::VulkanAPI::GetGraphicsQFI();
     const VkQueue queue = en::VulkanAPI::GetGraphicsQueue();
@@ -301,7 +302,11 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     };
 
     // Init rendering pipeline
-    en::vk::Swapchain swapchain(width, height, RecordSwapchainCommandBuffer, SwapchainResizeCallback);
+    en::vk::Swapchain* swapchain = nullptr;
+    if (en::Window::IsSupported())
+    {
+        swapchain = new en::vk::Swapchain(width, height, RecordSwapchainCommandBuffer, SwapchainResizeCallback);
+    }
 
     nrcHpmRenderer = new en::NrcHpmRenderer(
             width,
@@ -315,30 +320,25 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     mcHpmRenderer = new en::McHpmRenderer(width, height, 32, &camera, hpmScene);
     gtRenderer = new en::McHpmRenderer(width, height, 64, &camera, hpmScene);
 
-    en::ImGuiRenderer::Init(width, height);
-    switch (rendererId)
+    if (en::Window::IsSupported())
     {
-        case 0: // MC
-            en::ImGuiRenderer::SetBackgroundImageView(mcHpmRenderer->GetImageView());
-            break;
-        case 1: // NRC
-            en::ImGuiRenderer::SetBackgroundImageView(nrcHpmRenderer->GetImageView());
-            break;
-        default: // Error
-            en::Log::Error("Renderer ID is invalid", true);
-            break;
+        en::ImGuiRenderer::Init(width, height);
+        switch (rendererId)
+        {
+            case 0: // MC
+                en::ImGuiRenderer::SetBackgroundImageView(mcHpmRenderer->GetImageView());
+                break;
+            case 1: // NRC
+                en::ImGuiRenderer::SetBackgroundImageView(nrcHpmRenderer->GetImageView());
+                break;
+            default: // Error
+                en::Log::Error("Renderer ID is invalid", true);
+                break;
+        }
     }
 
-//    en::ImGuiRenderer::SetBackgroundImageView(
-//#ifdef NRC
-//            nrcHpmRenderer->GetImageView()
-//#else
-//            mcHpmRenderer->GetImageView()
-//#endif
-//    );
-
     // Swapchain rerecording because imgui renderer is now available
-    swapchain.Resize(width, height);
+    if (en::Window::IsSupported()) { swapchain->Resize(width, height); }
 
     en::Log::Info(std::to_string(en::VulkanAPI::GetTimestampPeriod()));
 
@@ -347,31 +347,35 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     size_t frameCount = 0;
     bool shutdown = false;
     bool restartAfterClose = false;
-    while (!en::Window::IsClosed() && !shutdown)
+    bool continueLoop = en::Window::IsSupported() ? !en::Window::IsClosed() : true;
+    while (continueLoop && !shutdown)
     {
         // Exit
-        if (frameCount == 1000) { break; }
+        //if (frameCount == 10) { break; }
 
         // Update
-        en::Window::Update();
-        en::Input::Update();
+        if (en::Window::IsSupported())
+        {
+            en::Window::Update();
+            en::Input::Update();
+        }
         en::Time::Update();
 
-        width = en::Window::GetWidth();
-        height = en::Window::GetHeight();
+        if (en::Window::IsSupported())
+        {
+            width = en::Window::GetWidth();
+            height = en::Window::GetHeight();
+        }
 
         float deltaTime = static_cast<float>(en::Time::GetDeltaTime());
         uint32_t fps = en::Time::GetFps();
-        en::Window::SetTitle(appName + " | Delta time: " + std::to_string(deltaTime) + "s | Fps: " + std::to_string(fps));
-
-        if (frameCount % 100 == 0)
-        {
-            en::Log::Info("Loss: " + std::to_string(nrc.GetLoss()));
-        }
 
         // Physics
-        en::Input::HandleUserCamInput(&camera, deltaTime);
-        camera.SetAspectRatio(width, height);
+        if (en::Window::IsSupported())
+        {
+            en::Input::HandleUserCamInput(&camera, deltaTime);
+            camera.SetAspectRatio(width, height);
+        }
         camera.UpdateUniformBuffer();
 
         // Render
@@ -400,93 +404,68 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
                 break;
         }
 
-//#ifdef NRC
-//        nrcHpmRenderer->Render(queue);
-//        result = vkQueueWaitIdle(queue);
-//        ASSERT_VULKAN(result);
-//        nrcHpmRenderer->EvaluateTimestampQueries();
-//#else
-//        mcHpmRenderer->Render(queue);
-//		result = vkQueueWaitIdle(queue);
-//		ASSERT_VULKAN(result);
-//		mcHpmRenderer->EvaluateTimestampQueries();
-//#endif
-
         // Imgui
-        en::ImGuiRenderer::StartFrame();
-
-        ImGui::Begin("Statistics");
-        ImGui::Text((std::string("Framecount ") + std::to_string(frameCount)).c_str());
-        ImGui::Text("DeltaTime %f", deltaTime);
-        ImGui::Text("FPS %d", fps);
-        ImGui::Text("NRC Loss %f", nrc.GetLoss());
-        ImGui::End();
-
-        ImGui::Begin("Controls");
-        shutdown = ImGui::Button("Shutdown");
-        ImGui::Checkbox("Restart after shutdown", &restartAfterClose);
-
-        if (ImGui::BeginCombo("##combo", currentRendererMenuItem))
+        if (en::Window::IsSupported())
         {
-            for (int i = 0; i < rendererMenuItems.size(); i++)
+            en::ImGuiRenderer::StartFrame();
+
+            ImGui::Begin("Statistics");
+            ImGui::Text((std::string("Framecount ") + std::to_string(frameCount)).c_str());
+            ImGui::Text("DeltaTime %f", deltaTime);
+            ImGui::Text("FPS %d", fps);
+            ImGui::Text("NRC Loss %f", nrc.GetLoss());
+            ImGui::End();
+
+            ImGui::Begin("Controls");
+            shutdown = ImGui::Button("Shutdown");
+            ImGui::Checkbox("Restart after shutdown", &restartAfterClose);
+
+            if (ImGui::BeginCombo("##combo", currentRendererMenuItem))
             {
-                bool selected = (currentRendererMenuItem == rendererMenuItems[i]);
-                if (ImGui::Selectable(rendererMenuItems[i], selected))
+                for (int i = 0; i < rendererMenuItems.size(); i++)
                 {
-                    if (i != rendererId)
+                    bool selected = (currentRendererMenuItem == rendererMenuItems[i]);
+                    if (ImGui::Selectable(rendererMenuItems[i], selected))
                     {
-                        rendererId = i;
-                        switch (rendererId)
+                        if (i != rendererId)
                         {
-                            case 0: // MC
-                                en::ImGuiRenderer::SetBackgroundImageView(mcHpmRenderer->GetImageView());
-                                break;
-                            case 1: // NRC
-                                en::ImGuiRenderer::SetBackgroundImageView(nrcHpmRenderer->GetImageView());
-                                break;
-                            default: // Error
-                                en::Log::Error("Renderer ID is invalid", true);
-                                break;
+                            rendererId = i;
+                            switch (rendererId)
+                            {
+                                case 0: // MC
+                                    en::ImGuiRenderer::SetBackgroundImageView(mcHpmRenderer->GetImageView());
+                                    break;
+                                case 1: // NRC
+                                    en::ImGuiRenderer::SetBackgroundImageView(nrcHpmRenderer->GetImageView());
+                                    break;
+                                default: // Error
+                                    en::Log::Error("Renderer ID is invalid", true);
+                                    break;
+                            }
                         }
-                    }
-                    currentRendererMenuItem = rendererMenuItems[i];
-                };
-                if (selected) { ImGui::SetItemDefaultFocus(); }
+                        currentRendererMenuItem = rendererMenuItems[i];
+                    };
+                    if (selected) { ImGui::SetItemDefaultFocus(); }
+                }
+                ImGui::EndCombo();
             }
-            ImGui::EndCombo();
+
+            ImGui::End();
+
+            mcHpmRenderer->RenderImGui();
+            nrcHpmRenderer->RenderImGui();
+
+            hpmScene.Update(true);
+
+            appConfig.RenderImGui();
+
+            en::ImGuiRenderer::EndFrame(queue, VK_NULL_HANDLE);
+            result = vkQueueWaitIdle(queue);
+            ASSERT_VULKAN(result);
         }
 
-        ImGui::End();
-
-        mcHpmRenderer->RenderImGui();
-        nrcHpmRenderer->RenderImGui();
-
-//        switch (rendererId)
-//        {
-//            case 0: // MC
-//                break;
-//            case 1: // NRC
-//                nrcHpmRenderer->RenderImGui();
-//                break;
-//            default: // Error
-//                en::Log::Error("Renderer ID is invalid", true);
-//                break;
-//        }
-
-//#ifdef NRC
-//        nrcHpmRenderer->RenderImGui();
-//#endif
-
-        hpmScene.Update(true);
-
-        appConfig.RenderImGui();
-
-        en::ImGuiRenderer::EndFrame(queue, VK_NULL_HANDLE);
-        result = vkQueueWaitIdle(queue);
-        ASSERT_VULKAN(result);
-
         // Display
-        swapchain.DrawAndPresent(VK_NULL_HANDLE, VK_NULL_HANDLE);
+        if (en::Window::IsSupported()) { swapchain->DrawAndPresent(VK_NULL_HANDLE, VK_NULL_HANDLE); }
 
         // Check loss
         if (frameCount % 100 == 0)
@@ -497,6 +476,7 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
 
         //
         frameCount++;
+        continueLoop = en::Window::IsSupported() ? !en::Window::IsClosed() : true;
     }
 
     // Evaluate at end
@@ -538,7 +518,7 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
 
     en::ImGuiRenderer::Shutdown();
 
-    swapchain.Destroy(true);
+    if (en::Window::IsSupported) { swapchain->Destroy(true); }
 
     for (size_t i = 0; i < testCameras.size(); i++)
     {
@@ -551,7 +531,7 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     nrc.Destroy();
 
     en::VulkanAPI::Shutdown();
-    en::Window::Shutdown();
+    if (en::Window::IsSupported()) { en::Window::Shutdown(); }
 
     en::Log::Info("Ending " + appName);
 

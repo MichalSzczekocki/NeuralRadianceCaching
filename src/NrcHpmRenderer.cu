@@ -1734,13 +1734,6 @@ namespace en
         descSets.insert(descSets.end(), hpmSceneDescSets.begin(), hpmSceneDescSets.end());
         descSets.push_back(m_DescSet);
 
-        // Create memory barrier
-        VkMemoryBarrier memoryBarrier;
-        memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        memoryBarrier.pNext = nullptr;
-        memoryBarrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-        memoryBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-
         // Bind descriptor sets
         vkCmdBindDescriptorSets(
                 m_PreCudaCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_PipelineLayout,
@@ -1754,30 +1747,12 @@ namespace en
         vkCmdBindPipeline(m_PreCudaCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_GenRaysPipeline);
         vkCmdDispatch(m_PreCudaCommandBuffer, m_RenderWidth / 32, m_RenderHeight, 1);
 
-        vkCmdPipelineBarrier(
-                m_PreCudaCommandBuffer,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_DEPENDENCY_DEVICE_GROUP_BIT,
-                1, &memoryBarrier,
-                0, nullptr,
-                0, nullptr);
-
         // Timestamp
         vkCmdWriteTimestamp(m_PreCudaCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, m_QueryPool, m_QueryIndex++);
 
         // Prep infer rays
         vkCmdBindPipeline(m_PreCudaCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_PrepInferRaysPipeline);
         vkCmdDispatch(m_PreCudaCommandBuffer, m_RenderWidth / 32, m_RenderHeight, 1);
-
-        vkCmdPipelineBarrier(
-                m_PreCudaCommandBuffer,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_DEPENDENCY_DEVICE_GROUP_BIT,
-                1, &memoryBarrier,
-                0, nullptr,
-                0, nullptr);
 
         // Timestamp
         vkCmdWriteTimestamp(m_PreCudaCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, m_QueryPool, m_QueryIndex++);
