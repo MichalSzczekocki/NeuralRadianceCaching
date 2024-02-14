@@ -203,6 +203,7 @@ namespace en
             m_RenderHeight(height),
             m_TrainSpp(trainSpp),
             m_ShouldBlend(blend),
+            m_ClearShader("nrc/clear.comp", false),
             m_GenRaysShader("nrc/gen_rays.comp", false),
             m_PrepInferRaysShader("nrc/prep_infer_rays.comp", false),
             m_PrepTrainRaysShader("nrc/prep_train_rays.comp", false),
@@ -230,7 +231,6 @@ namespace en
         CreateSyncObjects(device);
 
         CreateNrcBuffers();
-
         m_Nrc.Init(
                 m_RenderWidth * m_RenderHeight,
                 m_TrainWidth * m_TrainHeight,
@@ -253,6 +253,7 @@ namespace en
 
         InitSpecializationConstants();
 
+        CreateClearPipeline(device);
         CreateGenRaysPipeline(device);
         CreatePrepInferRaysPipeline(device);
         CreatePrepTrainRaysPipeline(device);
@@ -367,6 +368,9 @@ namespace en
 
         vkDestroyPipeline(device, m_GenRaysPipeline, nullptr);
         m_GenRaysShader.Destroy();
+
+        vkDestroyPipeline(device, m_ClearPipeline, nullptr);
+        m_ClearShader.Destroy();
 
         vkDestroyPipelineLayout(device, m_PipelineLayout, nullptr);
 
@@ -921,6 +925,30 @@ namespace en
         m_SpecInfo.pMapEntries = m_SpecMapEntries.data();
         m_SpecInfo.dataSize = sizeof(SpecializationData);
         m_SpecInfo.pData = &m_SpecData;
+    }
+
+    void NrcHpmRenderer::CreateClearPipeline(VkDevice device)
+    {
+        VkPipelineShaderStageCreateInfo shaderStage;
+        shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shaderStage.pNext = nullptr;
+        shaderStage.flags = 0;
+        shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        shaderStage.module = m_ClearShader.GetVulkanModule();
+        shaderStage.pName = "main";
+        shaderStage.pSpecializationInfo = &m_SpecInfo;
+
+        VkComputePipelineCreateInfo pipelineCI;
+        pipelineCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCI.pNext = nullptr;
+        pipelineCI.flags = 0;
+        pipelineCI.stage = shaderStage;
+        pipelineCI.layout = m_PipelineLayout;
+        pipelineCI.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineCI.basePipelineIndex = 0;
+
+        VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_ClearPipeline);
+        ASSERT_VULKAN(result);
     }
 
     void NrcHpmRenderer::CreateGenRaysPipeline(VkDevice device)
@@ -1813,16 +1841,6 @@ namespace en
         VkResult result = vkBeginCommandBuffer(m_PreCudaCommandBuffer, &beginInfo);
         ASSERT_VULKAN(result);
 
-        // Reset query pool
-        vkCmdResetQueryPool(m_PreCudaCommandBuffer, m_QueryPool, 0, c_QueryCount);
-
-        // Clear buffers
-        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcInferInputBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
-        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcInferOutputBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
-        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcTrainInputBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
-        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcTrainTargetBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
-        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcInferFilterBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
-
         // Collect descriptor sets
         std::vector<VkDescriptorSet> descSets = { m_Camera->GetDescriptorSet() };
         const std::vector<VkDescriptorSet>& hpmSceneDescSets = m_HpmScene.GetDescriptorSets();
@@ -1834,6 +1852,20 @@ namespace en
                 m_PreCudaCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_PipelineLayout,
                 0, descSets.size(), descSets.data(),
                 0, nullptr);
+
+        // Reset query pool
+        vkCmdResetQueryPool(m_PreCudaCommandBuffer, m_QueryPool, 0, c_QueryCount);
+
+        // Clear buffers
+        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcInferInputBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
+        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcInferOutputBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
+        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcTrainInputBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
+        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcTrainTargetBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
+        vkCmdFillBuffer(m_PreCudaCommandBuffer, m_NrcInferFilterBuffer->GetVulkanHandle(), 0, VK_WHOLE_SIZE, 0);
+
+        // Clear using shader
+        vkCmdBindPipeline(m_PreCudaCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ClearPipeline);
+        vkCmdDispatch(m_PreCudaCommandBuffer, 1, 1, 1);
 
         // Timestamp
         vkCmdWriteTimestamp(m_PreCudaCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_QueryPool, m_QueryIndex++);
