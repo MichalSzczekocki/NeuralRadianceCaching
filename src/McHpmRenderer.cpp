@@ -78,7 +78,7 @@ namespace en
         vkDestroyDescriptorSetLayout(device, s_DescSetLayout, nullptr);
     }
 
-    McHpmRenderer::McHpmRenderer(uint32_t width, uint32_t height, uint32_t spp, uint32_t pathLength, const Camera& camera, const HpmScene& scene) :
+    McHpmRenderer::McHpmRenderer(uint32_t width, uint32_t height, uint32_t spp, uint32_t pathLength, const Camera* camera, const HpmScene& scene) :
             m_RenderWidth(width),
             m_RenderHeight(height),
             m_Spp(spp),
@@ -118,12 +118,15 @@ namespace en
 
     void McHpmRenderer::Render(VkQueue queue)
     {
-        //
+        // Blending
         if (m_ShouldBlend) { m_BlendIndex++; }
+        if (m_Camera->HasChanged()) { m_BlendIndex = 1; }
+        m_UniformData.blendFactor = 1.0 / static_cast<float>(m_BlendIndex);
 
         // Generate random
         m_UniformData.random = glm::linearRand(glm::vec4(0.0f), glm::vec4(1.0f));
-        m_UniformData.blendFactor = 1.0 / static_cast<float>(m_BlendIndex);
+
+        // Update uniform buffer
         m_UniformBuffer.SetData(sizeof(UniformData), &m_UniformData, 0, 0);
 
         // Render
@@ -165,7 +168,7 @@ namespace en
         vkDestroyPipelineLayout(device, m_PipelineLayout, nullptr);
     }
 
-    void McHpmRenderer::ExportImageToFile(VkQueue queue, const std::string& filePath) const
+    void McHpmRenderer::ExportOutputImageToFile(VkQueue queue, const std::string& filePath) const
     {
         const size_t floatCount = m_RenderWidth * m_RenderHeight * 4;
         const size_t bufferSize = floatCount * sizeof(float);
@@ -244,11 +247,14 @@ namespace en
     void McHpmRenderer::RenderImGui()
     {
         ImGui::Begin("McHpmRenderer");
+
         ImGui::Text("Total Time %f ms", m_TimePeriod);
         ImGui::Text("Theoretical FPS %f", 1000.0f / m_TimePeriod);
+
         ImGui::Checkbox("Blend", &m_ShouldBlend);
         ImGui::Text("Blend index %u", m_BlendIndex);
         if (ImGui::Button("Reset blending")) { m_BlendIndex = 1; }
+
         ImGui::End();
     }
 
@@ -260,6 +266,13 @@ namespace en
     VkImageView McHpmRenderer::GetImageView() const
     {
         return m_OutputImageView;
+    }
+
+    void McHpmRenderer::SetCamera(const Camera* camera)
+    {
+        m_BlendIndex = 1;
+        m_Camera = camera;
+        RecordRenderCommandBuffer();
     }
 
     void McHpmRenderer::CreatePipelineLayout(VkDevice device)
@@ -694,7 +707,7 @@ namespace en
         vkCmdResetQueryPool(m_RenderCommandBuffer, m_QueryPool, 0, c_QueryCount);
 
         // Collect descriptor sets
-        std::vector<VkDescriptorSet> descSets = { m_Camera.GetDescriptorSet() };
+        std::vector<VkDescriptorSet> descSets = { m_Camera->GetDescriptorSet() };
         const std::vector<VkDescriptorSet>& hpmSceneDescSets = m_HpmScene.GetDescriptorSets();
         descSets.insert(descSets.end(), hpmSceneDescSets.begin(), hpmSceneDescSets.end());
         descSets.push_back(m_DescSet);
