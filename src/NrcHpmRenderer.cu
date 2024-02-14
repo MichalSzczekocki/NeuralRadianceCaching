@@ -194,6 +194,7 @@ namespace en
             uint32_t height,
             float trainSampleRatio,
             uint32_t trainSpp,
+            bool blend,
             const Camera* camera,
             const HpmScene& hpmScene,
             NeuralRadianceCache& nrc)
@@ -201,6 +202,7 @@ namespace en
             m_RenderWidth(width),
             m_RenderHeight(height),
             m_TrainSpp(trainSpp),
+            m_ShouldBlend(blend),
             m_GenRaysShader("nrc/gen_rays.comp", false),
             m_PrepInferRaysShader("nrc/prep_infer_rays.comp", false),
             m_PrepTrainRaysShader("nrc/prep_train_rays.comp", false),
@@ -600,10 +602,47 @@ namespace en
         return m_OutputImageView;
     }
 
-    void NrcHpmRenderer::SetCamera(const Camera* camera)
+    void NrcHpmRenderer::SetCamera(VkQueue queue, const Camera* camera)
     {
+        // Set members
         m_BlendIndex = 1;
         m_Camera = camera;
+
+        // Clear images
+        VkCommandBufferBeginInfo beginInfo;
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.pNext = nullptr;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+        ASSERT_VULKAN(vkBeginCommandBuffer(m_RandomTasksCmdBuf, &beginInfo));
+
+        VkClearColorValue clearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+        VkImageSubresourceRange subresourceRange;
+        subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        subresourceRange.baseMipLevel = 0;
+        subresourceRange.levelCount = 1;
+        subresourceRange.baseArrayLayer = 0;
+        subresourceRange.layerCount = 1;
+        vkCmdClearColorImage(m_RandomTasksCmdBuf, m_OutputImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &subresourceRange);
+        vkCmdClearColorImage(m_RandomTasksCmdBuf, m_PrimaryRayColorImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &subresourceRange);
+        vkCmdClearColorImage(m_RandomTasksCmdBuf, m_PrimaryRayInfoImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &subresourceRange);
+
+        ASSERT_VULKAN(vkEndCommandBuffer(m_RandomTasksCmdBuf));
+
+        VkSubmitInfo submitInfo;
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = nullptr;
+        submitInfo.waitSemaphoreCount = 0;
+        submitInfo.pWaitSemaphores = nullptr;
+        submitInfo.pWaitDstStageMask = nullptr;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_RandomTasksCmdBuf;
+        submitInfo.signalSemaphoreCount = 0;
+        submitInfo.pSignalSemaphores = nullptr;
+        ASSERT_VULKAN(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+        ASSERT_VULKAN(vkQueueWaitIdle(queue));
+
+        // Rerecord cmd buf
         RecordPreCudaCommandBuffer();
         RecordPostCudaCommandBuffer();
     }
@@ -940,7 +979,7 @@ namespace en
         imageCI.arrayLayers = 1;
         imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
         imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        imageCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         imageCI.queueFamilyIndexCount = 0;
         imageCI.pQueueFamilyIndices = nullptr;
@@ -1045,7 +1084,7 @@ namespace en
         imageCI.arrayLayers = 1;
         imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
         imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         imageCI.queueFamilyIndexCount = 0;
         imageCI.pQueueFamilyIndices = nullptr;
@@ -1150,7 +1189,7 @@ namespace en
         imageCI.arrayLayers = 1;
         imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
         imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+        imageCI.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         imageCI.queueFamilyIndexCount = 0;
         imageCI.pQueueFamilyIndices = nullptr;
