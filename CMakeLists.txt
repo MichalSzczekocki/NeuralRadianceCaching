@@ -98,3 +98,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE unofficial::tinyexr::tinyexr)
 #target_link_libraries(${PROJECT_NAME} PRIVATE OpenEXR::IlmImf OpenEXR::IlmImfUtil OpenEXR::IlmImfConfig)
 #find_package(OpenEXR CONFIG REQUIRED)
 #target_link_libraries(${PROJECT_NAME} PRIVATE OpenEXR::OpenEXR)
+
+# TBB
+find_package(TBB CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE TBB::tbb TBB::tbbmalloc TBB::tbbmalloc_proxy)
+
+# OPENVDB
+target_include_directories(${PROJECT_NAME} PRIVATE "C:/Users/micha/Desktop/Repositories/NeuralRadianceCaching/openvdb-install/include")
+target_link_libraries(${PROJECT_NAME} PRIVATE "C:/Users/micha/Desktop/Repositories/NeuralRadianceCaching/openvdb-install/lib/openvdb.lib")

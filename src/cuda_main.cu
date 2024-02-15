@@ -27,6 +27,7 @@
 #include <tinyexr.h>
 #include <engine/graphics/vulkan/CommandPool.hpp>
 #include <engine/graphics/Reference.hpp>
+#include <openvdb/openvdb.h>
 
 #include <cuda_runtime.h>
 #include <tiny-cuda-nn/config.h>
@@ -383,9 +384,35 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
 
     return restartAfterClose;
 }
+#if 0
+int main()
+{
+    openvdb::initialize();
+
+    const std::string appName("NeuralRadianceCaching");
+    uint32_t width = 1920;
+    uint32_t height = 1080;
+    en::Log::Info("Starting " + appName);
+
+    en::Window::Init(width, height, false, appName);
+    if (en::Window::IsSupported()) { en::Input::Init(en::Window::GetGLFWHandle()); }
+    en::VulkanAPI::Init(appName);
+
+    en::vk::Texture3D testTex = en::vk::Texture3D::FromVDB("data/volume/wdas_cloud_quarter.vdb");
+
+    testTex.Destroy();
+
+    en::VulkanAPI::Shutdown();
+    if (en::Window::IsSupported()) { en::Window::Shutdown(); }
+    en::Log::Info("Ending " + appName);
+}
+
+#else
 
 int main(int argc, char** argv)
 {
+    openvdb::initialize();
+
     std::vector<char*> myargv(argc);
     std::memcpy(myargv.data(), argv, sizeof(char*) * argc);
     myargv = {
@@ -404,3 +431,4 @@ int main(int argc, char** argv)
 
     return 0;
 }
+#endif
