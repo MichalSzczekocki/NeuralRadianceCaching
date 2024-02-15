@@ -319,6 +319,7 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
             height,
             appConfig.trainSampleRatio,
             appConfig.trainSpp,
+            appConfig.primaryRayLength,
             false,
             &camera,
             hpmScene,
@@ -556,7 +557,7 @@ int main(int argc, char** argv)
 {
     std::vector<char*> myargv(argc);
     std::memcpy(myargv.data(), argv, sizeof(char*) * argc);
-    myargv = { "NeuralRadianceCaching", "RelativeL2", "Adam", "0.001", "0", "0", "128", "6", "14", "0", "0.02", "1"};
+    myargv = { "NeuralRadianceCaching",  "RelativeL2", "Adam", "0.001", "0", "0", "64", "4", "15", "0", "0.05", "1", "2"};
     en::AppConfig appConfig(myargv);
 
     bool restartRunConfig;
