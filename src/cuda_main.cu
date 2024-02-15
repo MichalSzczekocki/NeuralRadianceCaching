@@ -388,7 +388,13 @@ int main(int argc, char** argv)
 {
     std::vector<char*> myargv(argc);
     std::memcpy(myargv.data(), argv, sizeof(char*) * argc);
-    myargv = { "NeuralRadianceCaching",  "RelativeL2", "Adam", "0.001", "0", "0", "64", "4", "15", "0", "0.05", "1", "3"};
+    myargv = {
+            "NeuralRadianceCaching",
+            "RelativeL2", "Adam", "0.001", "0.99",
+            "0", "0",
+            "64", "4", "15",
+            "0",
+            "0.05", "1", "3"};
     en::AppConfig appConfig(myargv);
 
     bool restartRunConfig;
