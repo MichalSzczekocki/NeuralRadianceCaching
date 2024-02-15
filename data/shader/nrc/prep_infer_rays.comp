@@ -1,0 +1,46 @@
+#version 460
+#define NRC
+#include "common.glsl"
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+void StoreNrcInferInput(const uint linearPixelIndex, const vec3 pos, const vec3 dir)
+{
+	// Norm pos
+	const vec3 normPos = (pos / skySize) + (skySize / 2.0);
+
+	// Calc dir
+	const float theta = atan(dir.z, dir.x);
+	const float normTheta = (theta / PI) + 0.5;
+	const float phi = acos(dir.y / length(dir.xz));
+	const float normPhi = phi / PI;
+
+	// Store infer input
+	nrcInferInput[linearPixelIndex].posX = normPos.x;
+	nrcInferInput[linearPixelIndex].posY = normPos.y;
+	nrcInferInput[linearPixelIndex].posZ = normPos.z;
+	nrcInferInput[linearPixelIndex].theta = normTheta;
+	nrcInferInput[linearPixelIndex].phi = normPhi;
+}
+
+void main()
+{
+	const uint x = gl_GlobalInvocationID.x;
+	const uint y = gl_GlobalInvocationID.y;
+	const ivec2 imageCoord = ivec2(x, y);
+	const uint linearPixelIndex = (y * RENDER_WIDTH) + x;
+
+	// Check if volume was hit
+	const vec4 primaryRayInfo = imageLoad(primaryRayInfoImage, imageCoord);
+	const bool didScatter = primaryRayInfo.x == 1.0;
+	if (!didScatter) { return; }
+
+	// Store neural ray info
+	const vec3 rayOrigin = imageLoad(nrcRayOriginImage, imageCoord).xyz;
+	const vec3 rayDir = imageLoad(nrcRayDirImage, imageCoord).xyz;
+	StoreNrcInferInput(linearPixelIndex, rayOrigin, rayDir);
+
+	// Increment batch valid sample counter
+	const uint linearBatchIndex = linearPixelIndex / BATCH_SIZE;
+	if (nrcInferFilter[linearBatchIndex] == 0) { atomicAdd(nrcInferFilter[linearBatchIndex], 1); }
+}

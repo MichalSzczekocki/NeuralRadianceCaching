@@ -3,6 +3,7 @@
 
 namespace en
 {
+    bool Window::m_Supported = false;
     GLFWwindow* Window::m_GLFWHandle;
     uint32_t Window::m_Width;
     uint32_t Window::m_Height;
@@ -15,14 +16,35 @@ namespace en
         m_Height = height;
 
         if (glfwInit() != GLFW_TRUE)
-            Log::Error("Failed to initialize GLFW", true);
+        {
+            Log::Warn("Failed to initialize GLFW. Starting without window");
+            m_Supported = false;
+            return;
+        }
+
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, resizable ? GLFW_TRUE : GLFW_FALSE);
-        m_GLFWHandle = glfwCreateWindow(static_cast<int>(m_Width), static_cast<int>(m_Height), title.c_str(), nullptr, nullptr);
+        m_GLFWHandle = glfwCreateWindow(
+                static_cast<int>(m_Width),
+                static_cast<int>(m_Height),
+                title.c_str(),
+                nullptr,
+                nullptr);
+
+        if (m_GLFWHandle == nullptr)
+        {
+            Log::Warn("Failed to create Window. Starting without window");
+            m_Supported = false;
+            return;
+        }
+
+        m_Supported = true;
     }
 
     void Window::Update()
     {
+        if (!m_Supported) { return; }
+
         glfwPollEvents();
 
         int width;
@@ -34,6 +56,8 @@ namespace en
 
     void Window::Shutdown()
     {
+        if (!m_Supported) { return; }
+
         Log::Info("Shutting down Window(GLFW)");
 
         glfwDestroyWindow(m_GLFWHandle);
@@ -42,6 +66,8 @@ namespace en
 
     void Window::WaitForUsableSize()
     {
+        if (!m_Supported) { return; }
+
         do
         {
             int width;
@@ -56,8 +82,15 @@ namespace en
 
     void Window::EnableCursor(bool enableCursor)
     {
+        if (!m_Supported) { return; }
+
         int cursorMode = enableCursor ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED;
         glfwSetInputMode(m_GLFWHandle, GLFW_CURSOR, cursorMode);
+    }
+
+    bool Window::IsSupported()
+    {
+        return m_Supported;
     }
 
     GLFWwindow* Window::GetGLFWHandle()
@@ -77,6 +110,7 @@ namespace en
 
     bool Window::IsClosed()
     {
+        if (!m_Supported) { return false; }
         return glfwWindowShouldClose(m_GLFWHandle);
     }
 
@@ -94,6 +128,8 @@ namespace en
 
     VkSurfaceKHR Window::CreateVulkanSurface(VkInstance vulkanInstance)
     {
+        if (!m_Supported) { return VK_NULL_HANDLE; }
+
         VkSurfaceKHR surface;
         VkResult result = glfwCreateWindowSurface(vulkanInstance, m_GLFWHandle, nullptr, &surface);
         ASSERT_VULKAN(result);
@@ -103,6 +139,7 @@ namespace en
 
     void Window::SetTitle(const std::string& title)
     {
+        if (!m_Supported) { return; }
         glfwSetWindowTitle(m_GLFWHandle, title.c_str());
     }
 }

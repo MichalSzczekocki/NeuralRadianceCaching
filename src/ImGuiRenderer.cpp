@@ -117,7 +117,7 @@ namespace en
         ImGui::NewFrame();
     }
 
-    void ImGuiRenderer::EndFrame(VkQueue queue)
+    void ImGuiRenderer::EndFrame(VkQueue queue, VkSemaphore waitSemaphore)
     {
         // Calculate ImGui draw data
         ImGui::Render();
@@ -184,12 +184,23 @@ namespace en
         ASSERT_VULKAN(result);
 
         // Submit
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+
         VkSubmitInfo submitInfo;
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.pNext = nullptr;
-        submitInfo.waitSemaphoreCount = 0;
-        submitInfo.pWaitSemaphores = nullptr;
-        submitInfo.pWaitDstStageMask = nullptr;
+        if (waitSemaphore == VK_NULL_HANDLE)
+        {
+            submitInfo.waitSemaphoreCount = 0;
+            submitInfo.pWaitSemaphores = nullptr;
+            submitInfo.pWaitDstStageMask = nullptr;
+        }
+        else
+        {
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = &waitSemaphore;
+            submitInfo.pWaitDstStageMask = &waitStage;
+        }
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &m_CommandBuffer;
         submitInfo.signalSemaphoreCount = 0;

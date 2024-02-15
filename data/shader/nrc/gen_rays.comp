@@ -4,10 +4,7 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
-ivec2 imageCoord;
-
-#define PATH_SAMPLE_COUNT 32
-vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
+vec4 TracePath(const ivec2 imageCoord, const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
 {
     vec3 scatteredLight = vec3(0.0);
     float transmittance = 1.0;
@@ -20,24 +17,15 @@ vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
     vec3 currentDir = rayDir;
     vec3 lastDir = vec3(0.0);
 
-    float totalTermProb = 1.0;
-
     didScatter = false;
-    for (uint i = 0; i < PATH_SAMPLE_COUNT; i++)
+    bool volumeExit = false;
+    for (int i = 0; i < PRIMARY_RAY_LENGTH; i++)
     {
         const float density = getDensity(currentPoint);
 
         if (density > 0.0)
         {
             didScatter = true;
-
-            if (RandFloat(1.0) > totalTermProb)
-            {
-                imageStore(nrcNeuralRayOriginImage, imageCoord, vec4(currentPoint, 0.0));
-                imageStore(nrcNeuralRayDirImage, imageCoord, vec4(currentDir, 0.0));
-                return vec4(scatteredLight, transmittance);
-            }
-            totalTermProb *= 0.5;
 
             // Get scene lighting
             const vec3 sceneLighting = TraceScene(currentPoint, currentDir);
@@ -47,7 +35,8 @@ vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
 
             // Transmittance calculation
             const vec3 s_int = density * sceneLighting * phase;
-            const float t_r = GetTransmittance(currentPoint, lastPoint, 32);
+            //const float t_r = GetTransmittance(currentPoint, lastPoint, 32);
+            const float t_r = RatioTrack(lastPoint, currentPoint);
 
             scatteredLight += transmittance * s_int;
             transmittance *= t_r;
@@ -57,16 +46,18 @@ vec4 TracePath(const vec3 rayOrigin, const vec3 rayDir, out bool didScatter)
             lastDir = currentDir;
 
             // Generate new direction
-            currentDir = NewRayDir(currentDir);
+            currentDir = NewRayDir(currentDir, true);
         }
 
         // Generate new point
-        const vec3 exit = find_entry_exit(currentPoint, currentDir)[1];
-        const float maxDistance = distance(exit, currentPoint) * 0.1;
-        const float nextDistance = RandFloat(maxDistance);
-        currentPoint = currentPoint + (currentDir * nextDistance);
+        currentPoint = DeltaTrack(currentPoint, currentDir, volumeExit);
     }
 
+    // Store nrc ray info
+    imageStore(nrcRayOriginImage, imageCoord, vec4(currentPoint, 0.0));
+    imageStore(nrcRayDirImage, imageCoord, vec4(currentDir, 0.0));
+
+    // Return prematurly terminated ray color
     return vec4(scatteredLight, transmittance);
 }
 
@@ -74,7 +65,7 @@ void main()
 {
     const uint x = gl_GlobalInvocationID.x;
     const uint y = gl_GlobalInvocationID.y;
-    imageCoord = ivec2(x, y);
+    ivec2 imageCoord = ivec2(x, y);
 
     // Fraguv and world pos
     const vec2 fragUV = vec2(float(x) * ONE_OVER_RENDER_WIDTH, float(y) * ONE_OVER_RENDER_HEIGHT);
@@ -83,8 +74,9 @@ void main()
     const vec3 pixelWorldPos = worldPos.xyz / worldPos.w;
 
     // Setup random
-    preRand = volumeData.random.x * fragUV.x;
-    prePreRand = volumeData.random.y * fragUV.y;
+    InitRandom(fragUV);
+    //preRand = random.x * fragUV.x;
+    //prePreRand = random.y * fragUV.y;
 
     // Setup ray
     const vec3 ro = camera.pos;
@@ -97,19 +89,24 @@ void main()
 
     vec4 primaryRayColor;
     vec4 primaryRayInfo;
+    bool didScatter = false;
     if (sky_sdf(entry) > MAX_RAY_DISTANCE)
     {
-        primaryRayColor = vec4(vec3(0.0), 1.0);
+        primaryRayColor = vec4(SampleHdrEnvMap(rd), 1.0);
         primaryRayInfo = vec4(0.0);
     }
     else
     {
-        bool didScatter;
-        primaryRayColor = TracePath(ro, rd, didScatter);
-        primaryRayInfo = vec4(didScatter ? 1.0 : 0.0, 0.0, 0.0, 0.0);
+        primaryRayColor = TracePath(imageCoord, ro, rd, didScatter);
+        if (!didScatter)
+        {
+            primaryRayColor = vec4(SampleHdrEnvMap(rd), 1.0);
+        }
     }
 
+    primaryRayInfo = vec4(didScatter ? 1.0 : 0.0, 0.0, 0.0, 0.0);
+
     // Store output
-    imageStore(nrcPrimaryRayColorImage, imageCoord, primaryRayColor);
-    imageStore(nrcPrimaryRayInfoImage, imageCoord, primaryRayInfo);
+    imageStore(primaryRayColorImage, imageCoord, primaryRayColor);
+    imageStore(primaryRayInfoImage, imageCoord, primaryRayInfo);
 }

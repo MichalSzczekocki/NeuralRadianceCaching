@@ -21,6 +21,23 @@ float GetTransmittance(const vec3 start, const vec3 end, const uint count)
 	return transmittance;
 }
 
+float RatioTrack(const vec3 start, const vec3 end)
+{
+	const float invMaxDensity = 1.0 / VOLUME_DENSITY_FACTOR;
+	const vec3 dir = normalize(end - start);
+	const float tMax = distance(end, start);
+	float transmittance = 1.0;
+	float t = 0.0;
+	for (uint i = 0; i < 128; i++)
+	{
+		t -= log(1.0 - RandFloat(1.0)) * invMaxDensity;
+		if (t >= tMax) { break; }
+		const vec3 nextSamplePoint = start + (t * dir);
+		transmittance *= 1.0 - (getDensity(nextSamplePoint) * invMaxDensity);
+	}
+	return transmittance;
+}
+
 vec3 TraceDirLight(const vec3 pos, const vec3 dir)
 {
 	if (dir_light.strength == 0.0)
@@ -28,7 +45,8 @@ vec3 TraceDirLight(const vec3 pos, const vec3 dir)
 		return vec3(0.0);
 	}
 
-	const float transmittance = GetTransmittance(pos, find_entry_exit(pos, -normalize(dir_light.dir))[1], 16);
+	//const float transmittance = GetTransmittance(pos, find_entry_exit(pos, -normalize(dir_light.dir))[1], 16);
+	const float transmittance = RatioTrack(pos, find_entry_exit(pos, -normalize(dir_light.dir))[1]);
 	const float phase = hg_phase_func(dot(dir_light.dir, -dir));
 	const vec3 dirLighting = vec3(1.0f) * transmittance * dir_light.strength * phase;
 	return dirLighting;
@@ -41,13 +59,14 @@ vec3 TracePointLight(const vec3 pos, const vec3 dir)
 		return vec3(0.0);
 	}
 
-	const float transmittance = GetTransmittance(pointLight.pos, pos, 16);
+	//const float transmittance = GetTransmittance(pointLight.pos, pos, 16);
+	const float transmittance = RatioTrack(pointLight.pos, pos);
 	const float phase = hg_phase_func(dot(normalize(pointLight.pos - pos), -dir));
 	const vec3 pointLighting = pointLight.color * pointLight.strength * transmittance * phase;
 	return pointLighting;
 }
 
-vec3 SampleHdrEnvMap(const vec2 dir, const bool hpm)
+vec3 SampleHdrEnvMap(const vec2 dir)
 {
 	// Assert: dir is normalized
 	const vec2 invAtan = vec2(0.1591, 0.3183);
@@ -56,20 +75,19 @@ vec3 SampleHdrEnvMap(const vec2 dir, const bool hpm)
 	uv *= invAtan;
 	uv += 0.5;
 
-	const float strength = hpm ? hdrEnvMapData.hpmStrength : hdrEnvMapData.directStrength;
-	return texture(hdrEnvMap, uv).xyz * strength;
+	return texture(hdrEnvMap, uv).xyz * HDR_ENV_MAP_STRENGTH;
 }
 
-vec3 SampleHdrEnvMap(const vec3 dir, const bool hpm)
+vec3 SampleHdrEnvMap(const vec3 dir)
 {
 	// Assert: dir is normalized
 	vec2 phiTheta = vec2(atan(dir.z, dir.x), asin(dir.y));
-	return SampleHdrEnvMap(phiTheta, hpm);
+	return SampleHdrEnvMap(phiTheta);
 }
 
 vec3 SampleHdrEnvMap(const vec3 pos, const vec3 dir, uint sampleCount)
 {
-	if (hdrEnvMapData.hpmStrength == 0.0)
+	if (HDR_ENV_MAP_STRENGTH == 0.0)
 	{
 		return vec3(0.0);
 	}
@@ -81,8 +99,9 @@ vec3 SampleHdrEnvMap(const vec3 pos, const vec3 dir, uint sampleCount)
 		const vec3 randomDir = NewRayDir(dir, false);
 		const float phase = hg_phase_func(dot(randomDir, -dir));
 		const vec3 exit = find_entry_exit(pos, randomDir)[1];
-		const float transmittance = GetTransmittance(pos, exit, 16);
-		const vec3 sampleLight = SampleHdrEnvMap(randomDir, true) * phase * transmittance;
+		//const float transmittance = GetTransmittance(pos, exit, 16);
+		const float transmittance = RatioTrack(pos, exit);
+		const vec3 sampleLight = SampleHdrEnvMap(randomDir) * phase * transmittance;
 
 		light += sampleLight;
 	}
@@ -122,8 +141,32 @@ vec3 TraceScene(const vec3 pos, const vec3 dir, const vec3 hdrEnvMapUniformDir)
 	const vec3 exit = find_entry_exit(pos, hdrEnvMapUniformDir)[1];
 	const float hdrEnvMapTransmittance = GetTransmittance(pos, exit, 16);
 	const float hdrEnvMapPhase = hg_phase_func(dot(-dir, hdrEnvMapUniformDir));
-	const vec3 hdrEnvMapLight = SampleHdrEnvMap(hdrEnvMapUniformDir, true) * hdrEnvMapTransmittance * hdrEnvMapPhase;
+	const vec3 hdrEnvMapLight = SampleHdrEnvMap(hdrEnvMapUniformDir) * hdrEnvMapTransmittance * hdrEnvMapPhase;
 
 	const vec3 totalLight = TraceDirLight(pos, dir) + TracePointLight(pos, dir) + hdrEnvMapLight;
 	return totalLight;
+}
+
+vec3 DeltaTrack(const vec3 rayOrigin, const vec3 rayDir, out bool volumeExit)
+{
+	volumeExit = false;
+
+	const float invMaxDensity = 1.0 / VOLUME_DENSITY_FACTOR;
+	const vec3 exit = find_entry_exit(rayOrigin, rayDir)[1];
+	const float tMax = distance(exit, rayOrigin);
+	float t = 0.0;
+
+	for (uint i = 0; i < 128; i++)
+	{
+		t -= log(1.0 - RandFloat(1.0)) * invMaxDensity;
+		if (t >= tMax)
+		{
+			volumeExit = true;
+			break;
+		}
+		const vec3 nextSamplePoint = rayOrigin + (t * rayDir);
+		if (getDensity(nextSamplePoint) * invMaxDensity > RandFloat(1.0)) { return nextSamplePoint; }
+	}
+
+	return rayOrigin + (RandFloat(tMax) * rayDir);
 }

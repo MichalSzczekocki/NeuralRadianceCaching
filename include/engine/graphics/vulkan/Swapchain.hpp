@@ -18,7 +18,7 @@ namespace en::vk
         void Destroy(bool destroySwapchain);
 
         void Resize(uint32_t width, uint32_t height);
-        void DrawAndPresent();
+        void DrawAndPresent(VkSemaphore waitSemaphore, VkSemaphore signalSemaphore);
 
         VkSwapchainKHR GetHandle() const;
 

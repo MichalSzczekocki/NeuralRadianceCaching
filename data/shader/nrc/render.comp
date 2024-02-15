@@ -4,22 +4,38 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
+vec3 LoadNrcInferOutput(const ivec2 imageCoord)
+{
+	const uint x = imageCoord.x;
+	const uint y = imageCoord.y;
+	const uint linearPixelIndex = (y * RENDER_WIDTH) + x;
+
+	vec3 color;
+	color.x = nrcInferOutput[linearPixelIndex].r;
+	color.y = nrcInferOutput[linearPixelIndex].g;
+	color.z = nrcInferOutput[linearPixelIndex].b;
+
+	color = exp(color) - vec3(1.0);
+
+	return max(vec3(0.0), color);
+}
+
 void main()
 {
 	const uint x = gl_GlobalInvocationID.x;
 	const uint y = gl_GlobalInvocationID.y;
 	const ivec2 outputImageCoord = ivec2(x, y);
-	const ivec2 invertedYImageCoord = ivec2(x, RENDER_HEIGHT - (y + 1));
 
-	const vec4 primaryRayColor = imageLoad(nrcPrimaryRayColorImage, invertedYImageCoord);
-	const vec4 primaryRayInfo = imageLoad(nrcPrimaryRayInfoImage, invertedYImageCoord);
-	const vec4 neuralRayColor = imageLoad(nrcNeuralRayColorImage, invertedYImageCoord);
+	const vec4 primaryRayColor = imageLoad(primaryRayColorImage, outputImageCoord);
+	const vec4 primaryRayInfo = imageLoad(primaryRayInfoImage, outputImageCoord);
+	const vec4 neuralRayColor = vec4(LoadNrcInferOutput(outputImageCoord), 0.0);
 
 	vec4 outputColor = vec4(primaryRayColor.xyz, 1.0);
-	if (primaryRayInfo.x > 0.0)
+	if (showNrc == 1 && primaryRayInfo.x == 1.0)
 	{
 		outputColor.xyz += neuralRayColor.xyz * primaryRayColor.w;
 	}
 
-	imageStore(nrcOutputImage, outputImageCoord, outputColor);
+	vec4 blendedOutputColor = (blendFactor * outputColor) + ((1.0 - blendFactor) * imageLoad(outputImage, outputImageCoord));
+	imageStore(outputImage, outputImageCoord, blendedOutputColor);
 }
