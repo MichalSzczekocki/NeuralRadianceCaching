@@ -26,16 +26,15 @@
 #include <engine/graphics/renderer/McHpmRenderer.hpp>
 #include <tinyexr.h>
 #include <engine/graphics/vulkan/CommandPool.hpp>
+#include <engine/graphics/Reference.hpp>
 
 #include <cuda_runtime.h>
 #include <tiny-cuda-nn/config.h>
 #include <vulkan/vulkan.h>
-en::McHpmRenderer* gtRenderer = nullptr;
-std::array<en::Camera*, 6> testCameras = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
-std::array<float*, 6> gtImages = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 
 #define ASSERT_CUDA(error) if (error != cudaSuccess) { en::Log::Error("Cuda assert triggered: " + std::string(cudaGetErrorName(error)), true); }
 
+en::Reference* reference = nullptr;
 en::NrcHpmRenderer* nrcHpmRenderer = nullptr;
 en::McHpmRenderer* mcHpmRenderer = nullptr;
 
@@ -112,112 +111,10 @@ void SwapchainResizeCallback()
     en::Log::Info("Skipping swapchain resize callback");
 }
 
-void Benchmark(
-        uint32_t width,
-        uint32_t height,
-        uint32_t sceneID,
-        const en::AppConfig& appConfig,
-        const en::HpmScene& scene,
-        const en::Camera* oldCamera,
-        VkQueue queue)
+void Benchmark(const en::Camera* camera, VkQueue queue, size_t frameCount)
 {
-    // Create output path if not exists
-    std::string outputDirPath = "output/ " + appConfig.GetName() + "/";
-    if (!std::filesystem::is_directory(outputDirPath) || !std::filesystem::exists(outputDirPath))
-    {
-        std::filesystem::create_directory(outputDirPath);
-    }
-
-    // Create reference folder if not exists
-    std::string referenceDirPath = "output/" + std::to_string(sceneID) + "/";
-    if (!std::filesystem::is_directory(referenceDirPath) || !std::filesystem::exists(referenceDirPath))
-    {
-        en::Log::Info("Reference folder for scene " + std::to_string(sceneID) + " was not found. Creating reference images");
-
-        // Create folder
-        std::filesystem::create_directory(referenceDirPath);
-
-        // Generate reference data
-        for (size_t i = 0; i < testCameras.size(); i++)
-        {
-            en::Log::Info("Generating reference image " + std::to_string(i));
-
-            // Set new camera
-            gtRenderer->SetCamera(queue, testCameras[i]);
-
-            // Generate reference image
-            for (size_t frame = 0; frame < 8192; frame++)
-            {
-                gtRenderer->Render(queue);
-                ASSERT_VULKAN(vkQueueWaitIdle(queue));
-            }
-
-            // Export reference image
-            gtRenderer->ExportOutputImageToFile(queue, referenceDirPath + std::to_string(i) + ".exr");
-        }
-    }
-
-    // Load reference images from folder
-    for (size_t i = 0; i < testCameras.size(); i++)
-    {
-        if (gtImages[i] != nullptr) { continue; }
-        int exrWidth;
-        int exrHeight;
-
-        const std::string exrFilePath = referenceDirPath + std::to_string(i) + ".exr";
-        if (TINYEXR_SUCCESS != LoadEXR(&gtImages[i], &exrWidth, &exrHeight, exrFilePath.c_str(), nullptr))
-        {
-            en::Log::Error("Tinyexr failed to load " + exrFilePath, true);
-        }
-
-        if (exrWidth != width || exrHeight != height)
-        {
-            en::Log::Error("Extent of loaded reference image does not match renderer extent", true);
-        }
-    }
-
-    // Test frame
-    const bool prevNrcBlend = nrcHpmRenderer->IsBlending();
-    const bool prevMcBlend = mcHpmRenderer->IsBlending();
-    nrcHpmRenderer->SetBlend(true);
-    mcHpmRenderer->SetBlend(true);
-
-    std::array<float, testCameras.size()> nrcMseLosses;
-    std::array<float, testCameras.size()> mcMseLosses;
-    for (size_t i = 0; i < testCameras.size(); i++)
-    {
-        nrcHpmRenderer->SetCamera(queue, testCameras[i]);
-        mcHpmRenderer->SetCamera(queue, testCameras[i]);
-        for (size_t frame = 0; frame < 1; frame++)
-        {
-            nrcHpmRenderer->Render(queue);
-            ASSERT_VULKAN(vkQueueWaitIdle(queue));
-
-            mcHpmRenderer->Render(queue);
-            ASSERT_VULKAN(vkQueueWaitIdle(queue));
-        }
-        nrcMseLosses[i] = nrcHpmRenderer->CompareReferenceMSE(queue, gtImages[i]);
-        mcMseLosses[i] = mcHpmRenderer->CompareReferenceMSE(queue, gtImages[i]);
-    }
-
-    nrcHpmRenderer->SetBlend(prevNrcBlend);
-    mcHpmRenderer->SetBlend(prevMcBlend);
-
-    // Calculate total loss
-    float nrcMSE = 0.0f;
-    float mcMSE = 0.0f;
-    for (size_t i = 0; i < testCameras.size(); i++)
-    {
-        nrcMSE += nrcMseLosses[i];
-        mcMSE += mcMseLosses[i];
-    }
-    const float frameCountF = static_cast<float>(testCameras.size());
-    en::Log::Info("NRC MSE: " + std::to_string(nrcMSE / frameCountF));
-    en::Log::Info("MC MSE: " + std::to_string(mcMSE / frameCountF));
-
-    // Reset camera
-    nrcHpmRenderer->SetCamera(queue, oldCamera);
-    mcHpmRenderer->SetCamera(queue, oldCamera);
+    en::Log::Info("Frame: " + std::to_string(frameCount));
+    reference->CompareNrc(*nrcHpmRenderer, camera, queue);
 }
 
 bool RunAppConfigInstance(const en::AppConfig& appConfig)
@@ -256,56 +153,8 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
             0.1f,
             100.0f);
 
-    testCameras = {
-            new en::Camera(
-                    glm::vec3(64.0f, 0.0f, 0.0f),
-                    glm::vec3(-1.0f, 0.0f, 0.0f),
-                    glm::vec3(0.0f, 1.0f, 0.0f),
-                    aspectRatio,
-                    glm::radians(60.0f),
-                    0.1f,
-                    100.0f),
-            new	en::Camera(
-                    glm::vec3(-64.0f, 0.0f, 0.0f),
-                    glm::vec3(1.0f, 0.0f, 0.0f),
-                    glm::vec3(0.0f, 1.0f, 0.0f),
-                    aspectRatio,
-                    glm::radians(60.0f),
-                    0.1f,
-                    100.0f),
-            new en::Camera(
-                    glm::vec3(0.0f, 64.0f, 0.0f),
-                    glm::vec3(0.0f, -1.0f, 0.0f),
-                    glm::vec3(1.0f, 0.0f, 0.0f),
-                    aspectRatio,
-                    glm::radians(60.0f),
-                    0.1f,
-                    100.0f),
-            new en::Camera(
-                    glm::vec3(0.0f, -64.0f, 0.0f),
-                    glm::vec3(0.0f, 1.0f, 0.0f),
-                    glm::vec3(1.0f, 0.0f, 0.0f),
-                    aspectRatio,
-                    glm::radians(60.0f),
-                    0.1f,
-                    100.0f),
-            new en::Camera(
-                    glm::vec3(0.0f, 0.0f, 64.0f),
-                    glm::vec3(0.0f, 0.0f, -1.0f),
-                    glm::vec3(0.0f, 1.0f, 0.0f),
-                    aspectRatio,
-                    glm::radians(60.0f),
-                    0.1f,
-                    100.0f),
-            new en::Camera(
-                    glm::vec3(0.0f, 0.0f, -64.0f),
-                    glm::vec3(0.0f, 0.0f, 1.0f),
-                    glm::vec3(0.0f, 1.0f, 0.0f),
-                    aspectRatio,
-                    glm::radians(60.0f),
-                    0.1f,
-                    100.0f)
-    };
+    // Init reference
+    reference = new en::Reference(width, height, appConfig, hpmScene, queue);
 
     // Init rendering pipeline
     en::vk::Swapchain* swapchain = nullptr;
@@ -326,7 +175,6 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
             nrc);
 
     mcHpmRenderer = new en::McHpmRenderer(width, height, 32, false, &camera, hpmScene);
-    gtRenderer = new en::McHpmRenderer(width, height, 64, true, &camera, hpmScene);
 
     if (en::Window::IsSupported())
     {
@@ -359,9 +207,6 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     bool continueLoop = en::Window::IsSupported() ? !en::Window::IsClosed() : true;
     while (continueLoop && !shutdown)
     {
-        // Exit
-        //if (frameCount == 10) { break; }
-
         // Update
         if (en::Window::IsSupported())
         {
@@ -388,12 +233,6 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
         camera.UpdateUniformBuffer();
 
         // Render
-        // Always render nrc for training
-//        nrcHpmRenderer->Render(queue);
-//        result = vkQueueWaitIdle(queue);
-//        ASSERT_VULKAN(result);
-//        nrcHpmRenderer->EvaluateTimestampQueries();
-
         switch (rendererId)
         {
             case 0: // MC
@@ -403,7 +242,7 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
                 mcHpmRenderer->EvaluateTimestampQueries();
                 break;
             case 1: // NRC
-                nrcHpmRenderer->Render(queue);
+                nrcHpmRenderer->Render(queue, true);
                 result = vkQueueWaitIdle(queue);
                 ASSERT_VULKAN(result);
                 nrcHpmRenderer->EvaluateTimestampQueries();
@@ -483,6 +322,8 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
 //            en::Log::Info("Frame: " + std::to_string(frameCount));
 //            Benchmark(appConfig.renderWidth, appConfig.renderHeight, appConfig.scene.id, appConfig, hpmScene, &camera, queue);
 //        }
+        // Benchmark
+        if (benchmark && frameCount % 10 == 0) { Benchmark(&camera, queue, frameCount); }
 
         //
         frameCount++;
@@ -517,14 +358,6 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
     ASSERT_VULKAN(result);
 
     // End
-    for (size_t i = 0; i < testCameras.size(); i++)
-    {
-        free(gtImages[i]);
-    }
-
-    gtRenderer->Destroy();
-    delete gtRenderer;
-
     mcHpmRenderer->Destroy();
     delete mcHpmRenderer;
 
@@ -535,11 +368,8 @@ bool RunAppConfigInstance(const en::AppConfig& appConfig)
 
     if (en::Window::IsSupported) { swapchain->Destroy(true); }
 
-    for (size_t i = 0; i < testCameras.size(); i++)
-    {
-        testCameras[i]->Destroy();
-        delete testCameras[i];
-    }
+    reference->Destroy();
+    delete reference;
 
     hpmScene.Destroy();
     camera.Destroy();
@@ -557,7 +387,7 @@ int main(int argc, char** argv)
 {
     std::vector<char*> myargv(argc);
     std::memcpy(myargv.data(), argv, sizeof(char*) * argc);
-    myargv = { "NeuralRadianceCaching",  "RelativeL2", "Adam", "0.001", "0", "0", "64", "4", "15", "0", "0.05", "1", "2"};
+    myargv = { "NeuralRadianceCaching",  "RelativeL2", "Adam", "0.001", "0", "0", "64", "4", "15", "0", "0.05", "1", "3"};
     en::AppConfig appConfig(myargv);
 
     bool restartRunConfig;
